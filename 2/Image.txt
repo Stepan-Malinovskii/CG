@@ -1,0 +1,296 @@
+const int MAX_MARCHING_STEPS = 255;
+const float MIN_DIST = 0.0;
+const float MAX_DIST = 100.0;
+const float PRECISION = 0.001;
+const float PI = 3.14159265359;
+const vec3 COLOR_DIVIDE = vec3(255, 255, 255);
+
+const float missileStartVelocity = 5.0f;
+const vec3 gravity = vec3(0.0f, -9.81f, 0.0f);
+
+struct Surface 
+{
+    float sd;
+    vec3 col;
+};
+
+struct TankData
+{
+    vec2 hPos;
+    float bodyYAW;
+    float headYAW;
+    float muzzlePITCH;
+};
+
+//==Rotation==\\
+
+mat3 rotateX(float theta) 
+{
+    float c = cos(theta);
+    float s = sin(theta);
+    return mat3(
+        vec3(1, 0, 0),
+        vec3(0, c, -s),
+        vec3(0, s, c)
+    );
+}
+
+mat3 rotateY(float theta) 
+{
+    float c = cos(theta);
+    float s = sin(theta);
+    return mat3(
+        vec3(c, 0, s),
+        vec3(0, 1, 0),
+        vec3(-s, 0, c)
+    );
+}
+
+mat3 rotateZ(float theta)
+{
+    float c = cos(theta);
+    float s = sin(theta);
+    return mat3(
+        vec3(c, -s, 0),
+        vec3(s, c, 0),
+        vec3(0, 0, 1)
+    );
+}
+
+mat3 identity() 
+{
+    return mat3(
+        vec3(1, 0, 0),
+        vec3(0, 1, 0),
+        vec3(0, 0, 1)
+    );
+}
+
+//==Base_SDF==\\
+
+Surface sdSphere(vec3 p, float r, vec3 offset, vec3 col)
+{
+    return Surface(length(p - offset) - r, col);
+}
+
+Surface sdBox( vec3 p, vec3 b, vec3 offset, vec3 col, mat3 transform)
+{
+  vec3 q = abs((p - offset) * transform) - b;
+  return Surface(length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0), col);
+}
+
+Surface sdCappedCylinder(vec3 p, float r, float h, vec3 offset, vec3 col, mat3 transform)
+{
+    vec3 q = (p - offset) * transform;
+
+    vec2 d = vec2(length(q.xz) - r, abs(q.y) - h * 0.5);
+    float sd = min(max(d.x, d.y), 0.0) + length(max(d, 0.0));
+
+    return Surface(sd, col);
+}
+
+//==Calc_Method==\\
+
+Surface minSurface(Surface obj1, Surface obj2) 
+{
+    if (obj1.sd < obj2.sd)
+    {
+        return obj1;
+    }
+    
+    return obj2;
+}
+
+//==Save==\\
+
+float getFloorHeight(vec3 p)
+{
+    float scale = 0.07;
+    float invIntensity = 3.0f;
+    return texture(iChannel1, vec2(p.x, p.z) * scale).r / invIntensity - 1.0;
+}
+
+vec3 getFloorNormal(vec3 p)
+{
+    vec2 e = vec2(0.001, 0.0);
+    float h = getFloorHeight(p);
+    float hx = getFloorHeight(p + vec3(e.x, 0, 0));
+    float hz = getFloorHeight(p + vec3(0, 0, e.x));
+    return normalize(vec3(h - hx, e.x, h - hz));
+}
+
+TankData getTankData()
+{
+    vec4 o_o = texelFetch(iChannel0, ivec2(0, 0), 0);
+    vec4 l_o = texelFetch(iChannel0, ivec2(1, 0), 0);
+    return TankData(l_o.xy, o_o.x, o_o.y, o_o.z);
+}
+
+//==Scene==\\
+
+Surface sdTank(vec3 p, TankData data)
+{
+    const vec3 bodySize = vec3(0.6, 0.2, 0.4);
+    const float turretRadius = 0.35;
+    const float turretHeight = 0.2;
+    const float muzzleLength = 0.7;
+    const float muzzleRadius = 0.04;
+    const vec3 tankColor = vec3(0, 232, 38);
+
+    float floorY = getFloorHeight(vec3(data.hPos.x, 0.0, data.hPos.y)) + bodySize.y;
+    vec3 tankPos = vec3(data.hPos.x, floorY, data.hPos.y);
+
+    Surface body = sdBox(p, bodySize, tankPos, tankColor, rotateY(data.bodyYAW));
+
+    vec3 headCenter = vec3(data.hPos.x, floorY + bodySize.y + turretHeight * 0.5, data.hPos.y);
+    Surface head = sdCappedCylinder(p, turretRadius, turretHeight, headCenter, tankColor, identity());
+
+    mat3 muzzleRot = rotateY(data.headYAW) * rotateZ(data.muzzlePITCH + PI / 2.0f);
+    vec3 muzzleForward = muzzleRot * vec3(0.0, 1.0, 0.0);
+    vec3 dirFlat = vec3(cos(data.headYAW), 0.0, sin(data.headYAW));
+    vec3 muzzleBase = headCenter + dirFlat * (turretRadius + 0.02);
+    vec3 muzzleCenter = muzzleBase + muzzleForward * (muzzleLength * 0.5);
+
+    Surface muzzle = sdCappedCylinder(p, muzzleRadius, muzzleLength, muzzleCenter, tankColor, muzzleRot);
+
+    return minSurface(body, minSurface(head, muzzle));
+}
+
+Surface sdMissile(vec3 p)
+{
+    vec4 startData = texelFetch(iChannel0, ivec2(2, 0), 0);
+    
+    if (startData.w == 0.0f) return Surface(1000.0, vec3(0.0f));
+    
+    vec3 startDir = texelFetch(iChannel0, ivec2(2, 1), 0).xyz;
+    float fallTime = texelFetch(iChannel0, ivec2(2, 1), 0).w;
+    
+    vec3 currentPos = startData.xyz + missileStartVelocity * startDir * fallTime + gravity * fallTime * fallTime / 2.0f;
+    
+    return sdSphere(p, 0.05f, currentPos, vec3(0.0f));
+}
+
+Surface sdFloor(vec3 p)
+{
+    float h = getFloorHeight(p);
+    
+    float scale = 0.1;
+    float noiseValue = texture(iChannel1, vec2(p.x, p.z) * scale).r;
+    
+    vec3 lowColor  = vec3(13, 40, 0);
+    vec3 highColor = vec3(100, 143, 0);
+    vec3 heightColor = mix(lowColor, highColor, noiseValue);
+    vec3 waterColor = vec3(0, 109, 143);
+    
+    return minSurface(Surface(p.y - h, heightColor), Surface(p.y + 0.89f, waterColor));
+}
+
+Surface sdScene(vec3 p) 
+{
+    Surface myTank = sdTank(p, getTankData());
+    Surface anotherTank = sdTank(p, TankData(vec2(-1.5f, -2.0f), -PI / 4.0f, PI / 4.0f, -PI / 6.0f));
+    
+    Surface missile = sdMissile(p);
+    
+    return minSurface(sdFloor(p), minSurface(missile, minSurface(myTank, anotherTank)));
+}
+
+vec3 sdDayCycle(in vec3 rd, out vec3 lightPosition, out vec3 lightColor)
+{
+    float t = iTime * 0.4f;
+    float R = 25.0;
+    
+    vec3 sunPos = R * vec3(cos(t), cos(t), sin(t));
+    vec3 moonPos = R * vec3(cos(t + PI), cos(t + PI), sin(t + PI));
+
+    vec3 sunDir = normalize(sunPos);
+    float sunAltitude = sunDir.y;
+
+    float sunIntensity = smoothstep(-0.2f, 0.2f, sunAltitude);
+    float moonIntensity = 1.0 - sunIntensity;
+
+    lightPosition = (sunIntensity * sunPos + moonIntensity * moonPos) / (sunIntensity + moonIntensity + 0.001);
+    
+    vec3 sunsetColor   = vec3(255, 102, 51);
+    vec3 daylightColor = vec3(255, 242, 217);
+    vec3 sunLightColor = mix(sunsetColor, daylightColor, smoothstep(-0.1, 0.3, sunAltitude));
+    
+    vec3 moonLightColor = vec3(204, 217, 255) * 0.4;
+
+    lightColor = sunIntensity * sunLightColor + moonIntensity * moonLightColor;
+
+    float dayBlend = smoothstep(-0.1, 0.1, sunAltitude);
+    
+    vec3 dayTop       = vec3(51, 102, 230);
+    vec3 dayBottom    = vec3(153, 204, 255);
+    vec3 nightTop     = vec3(3, 3, 13);
+    vec3 nightBottom  = vec3(5, 5, 26);
+    
+    vec3 skyTop    = mix(nightTop,    dayTop,    dayBlend);
+    vec3 skyBottom = mix(nightBottom, dayBottom, dayBlend);
+
+    float horizonBlend = smoothstep(-0.3, 0.4, rd.y);
+    vec3 skyColor = mix(skyBottom, skyTop, horizonBlend);
+
+    float sunDot = dot(rd, sunDir);
+    float sunGlow = smoothstep(0.996, 1.0, sunDot);
+    skyColor += sunLightColor * sunGlow * sunIntensity * 8.0;
+
+    vec3 moonDir = normalize(moonPos);
+    float moonDot = dot(rd, moonDir);
+    float moonGlow = smoothstep(0.994, 1.0, moonDot);
+    skyColor += moonLightColor * moonGlow * moonIntensity * 4.0;
+
+    return skyColor;
+}
+
+//==3D_Method==\\
+
+Surface rayMarch(vec3 ro, vec3 rd, float start, float end)
+{
+  float depth = start;
+  Surface co;
+
+  for (int i = 0; i < MAX_MARCHING_STEPS; i++) {
+    vec3 p = ro + depth * rd;
+    co = sdScene(p);
+    depth += co.sd;
+    if (co.sd < PRECISION || depth > end) break;
+  }
+
+  co.sd = depth;
+
+  return co;
+}
+
+vec3 calcNormal(in vec3 p) 
+{
+    vec2 e = vec2(1.0, -1.0) * 0.0005;
+    return normalize(
+        e.xyy * sdScene(p + e.xyy).sd +
+        e.yyx * sdScene(p + e.yyx).sd +
+        e.yxy * sdScene(p + e.yxy).sd +
+        e.xxx * sdScene(p + e.xxx).sd
+    );
+}
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord)
+{
+    vec2 uv = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;
+    vec3 ro = vec3(0, 0, 3);
+    vec3 rd = normalize(vec3(uv, -1));
+
+    vec3 lightPosition, lightColor;
+    vec3 backgroundColor = sdDayCycle(rd, lightPosition, lightColor);
+    fragColor = vec4(backgroundColor / COLOR_DIVIDE, 1.0);
+    
+    Surface co = rayMarch(ro, rd, MIN_DIST, MAX_DIST);
+    if (co.sd > MAX_DIST) return;
+    
+    vec3 p = ro + rd * co.sd;
+    vec3 normal = calcNormal(p);
+    vec3 lightDirection = normalize(lightPosition - p);
+    float dif = clamp(dot(normal, lightDirection), 0.05, 1.0);
+
+    fragColor = vec4(dif * lightColor / COLOR_DIVIDE * co.col / COLOR_DIVIDE, 1.0);
+}

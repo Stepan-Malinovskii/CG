@@ -1,0 +1,165 @@
+const int KEY_LEFT = 37;
+const int KEY_RIGHT = 39;
+const int KEY_FORWARD = 38;
+const int KEY_BACKWARD = 40;
+const int KEY_A  = 65;
+const int KEY_D = 68;
+const int KEY_S = 83;
+const int KEY_W = 87;
+const int KEY_SPACE = 32;
+
+const float PI = 3.14159265359;
+
+const float moveSpeed = 2.0;
+const float turnSpeed = 2.0;
+
+const float missileStartVelocity = 5.0;
+const vec3 gravity = vec3(0.0, -9.81, 0.0);
+
+float getFloorHeight(vec3 p)
+{
+    float scale = 0.1;
+    float invIntensity = 3.0;
+    return texture(iChannel1, vec2(p.x, p.z) * scale).r / invIntensity - 1.0;
+}
+
+mat3 rotateY(float theta) 
+{
+    float c = cos(theta);
+    float s = sin(theta);
+    return mat3(
+        vec3(c, 0, s),
+        vec3(0, 1, 0),
+        vec3(-s, 0, c)
+    );
+}
+
+mat3 rotateZ(float theta)
+{
+    float c = cos(theta);
+    float s = sin(theta);
+    return mat3(
+        vec3(c, -s, 0),
+        vec3(s, c, 0),
+        vec3(0, 0, 1)
+    );
+}
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord) 
+{    
+    if (int(fragCoord.x) == 0 && int(fragCoord.y) == 0)
+    {
+        float ad = texelFetch(iChannel1, ivec2(KEY_D, 0), 0).r - texelFetch(iChannel1, ivec2(KEY_A, 0), 0).r;
+        float lr = texelFetch(iChannel1, ivec2(KEY_RIGHT, 0), 0).r - texelFetch(iChannel1, ivec2(KEY_LEFT, 0), 0).r;
+        float ud = texelFetch(iChannel1, ivec2(KEY_BACKWARD, 0), 0).r - texelFetch(iChannel1, ivec2(KEY_FORWARD, 0), 0).r;
+        
+        vec4 oldAngles = texelFetch(iChannel0, ivec2(0, 0), 0);
+        
+        oldAngles.x += ad * turnSpeed * iTimeDelta;
+        oldAngles.y += lr * turnSpeed * iTimeDelta;
+        oldAngles.z += ud * turnSpeed * iTimeDelta;
+        oldAngles.z = clamp(oldAngles.z, -0.5, 0.1);
+        
+        fragColor = oldAngles;
+    }
+    else if (int(fragCoord.x) == 1 && int(fragCoord.y) == 0) 
+    {
+        float ws = texelFetch(iChannel1, ivec2(KEY_W, 0), 0).r - texelFetch(iChannel1, ivec2(KEY_S, 0), 0).r;
+        
+        vec2 oldPos = texelFetch(iChannel0, ivec2(1, 0), 0).xy;
+        vec4 oldAngles = texelFetch(iChannel0, ivec2(0, 0), 0);
+        
+        vec2 forward = vec2(cos(oldAngles.x), sin(oldAngles.x));
+        vec2 newPos = oldPos + forward * ws * moveSpeed * iTimeDelta;
+        
+        fragColor = vec4(newPos, 0.0, 0.0);
+    }
+    else if (int(fragCoord.x) == 2 && int(fragCoord.y) == 0)
+    {
+        vec4 oldData = texelFetch(iChannel0, ivec2(2, 0), 0);
+        float isActive = oldData.w;
+    
+        if (isActive == 0.0)
+        {
+            float space = texelFetch(iChannel1, ivec2(KEY_SPACE, 0), 0).r;
+    
+            if (space == 1.0)
+            {
+                vec2 hPos = texelFetch(iChannel0, ivec2(1, 0), 0).xy;
+                vec4 angles = texelFetch(iChannel0, ivec2(0, 0), 0);
+    
+                const float bodyH = 0.35;
+                const float turretH = 0.2;
+                const float turretR = 0.35;
+                const float muzzleL = 0.7;
+    
+                float floorY = getFloorHeight(vec3(hPos.x, 0.0, hPos.y)) + bodyH;
+                
+                vec3 headCenter = vec3(hPos.x, floorY + bodyH + turretH * 0.5, hPos.y);
+                mat3 muzzleRot = rotateY(angles.y) * rotateZ(angles.z + PI / 2.0f);
+                vec3 muzzleForward = muzzleRot * vec3(0.0, 1.0, 0.0);
+                vec3 dirFlat = vec3(cos(angles.y), 0.0, sin(angles.y));
+                vec3 muzzleBase = headCenter + dirFlat * turretR;
+                vec3 muzzleEnd = muzzleBase + muzzleForward * (muzzleL + 0.02f);
+    
+                fragColor = vec4(muzzleEnd, 1.0);
+            }
+            else
+            {
+                fragColor = vec4(0.0);
+            }
+        }
+        else
+        {
+            vec4 flightData = texelFetch(iChannel0, ivec2(2, 1), 0);
+            vec3 startPos = oldData.rgb;
+            vec3 dir = flightData.rgb;
+            float flightTime = flightData.a;
+    
+            vec3 currentPos = startPos + missileStartVelocity * dir * flightTime + 0.5 * gravity * flightTime * flightTime;
+            if (currentPos.y <= getFloorHeight(currentPos))
+            {
+                fragColor = vec4(0.0);
+            }
+            else
+            {
+                fragColor = oldData;
+            }
+        }
+    }
+    else if (int(fragCoord.x) == 2 && int(fragCoord.y) == 1)
+    {
+        vec4 posData = texelFetch(iChannel0, ivec2(2, 0), 0);
+        float isActive = posData.w;
+    
+        if (isActive == 1.0)
+        {
+            float flightTime = texelFetch(iChannel0, ivec2(2, 1), 0).a + iTimeDelta;
+            vec3 dir = texelFetch(iChannel0, ivec2(2, 1), 0).rgb;
+            fragColor = vec4(dir, flightTime);
+        }
+        else
+        {
+            float space = texelFetch(iChannel1, ivec2(KEY_SPACE, 0), 0).r;
+            if (space == 1.0)
+            {
+                vec2 hPos = texelFetch(iChannel0, ivec2(1, 0), 0).xy;
+                vec4 angles = texelFetch(iChannel0, ivec2(0, 0), 0);
+    
+                // 🔸 Тот же расчёт направления!
+                mat3 muzzleRot = rotateY(angles.y) * rotateZ(angles.z + PI / 2.0);
+                vec3 shootDir = normalize(muzzleRot * vec3(0.0, 1.0, 0.0));
+    
+                fragColor = vec4(shootDir, 0.0);
+            }
+            else
+            {
+                fragColor = vec4(0.0);
+            }
+        }
+    }
+    else
+    {
+        fragColor = vec4(0.0);
+    }
+}

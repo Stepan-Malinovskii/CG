@@ -1,0 +1,179 @@
+const vec4 rgbaDivide = vec4(256.0f, 256.0f, 256.0f, 1.0f);
+const float PI = 3.14159265359f;
+
+vec2 rotate(vec2 p, float angle) {
+    float s = sin(angle);
+    float c = cos(angle);
+    return mat2(c, s, -s, c) * p;
+}
+
+float sdCircle(vec2 p, float r) 
+{
+    return length(p) - r;
+}
+
+float sdRect(vec2 p, vec2 size)
+{
+    vec2 d = abs(p) - size;
+    return length(max(d, 0.0f));
+}
+
+float sdEpicycloid(vec2 p, float radius)
+{
+    float r = length(p);
+    if (r < 0.001f) return -radius;
+
+    float theta = atan(p.y, p.x);
+
+    float x_curve = sin(iTime) / 3.0f + cos(theta) + cos(5.0f * theta) / 5.0f;
+    float y_curve = sin(iTime) / 3.0f + sin(theta) - sin(5.0f * theta) / 5.0f;
+    float R_theta = radius * length(vec2(x_curve, y_curve));
+    
+    return r - R_theta;
+}
+
+float sdButterfly(vec2 p, float radius)
+{
+    float r = length(p);
+    if (r < 0.001f) return -radius;
+    
+    float theta = atan(p.x, p.y);
+    
+    float x_curve = sin(theta) * (sin(iTime) / 3.0f + exp(cos(theta)) - 2.0f * cos(4.0f * theta) + pow(sin(theta / 12.0f ), 5.0f));
+    float y_curve = cos(theta) * (sin(iTime) / 3.0f + exp(cos(theta)) - 2.0f * cos(4.0f * theta) + pow(sin(theta / 12.0f ), 5.0f));
+    float R_theta = radius * length(vec2(x_curve, y_curve));
+    
+    return r - R_theta / 2.0f;
+}
+
+void sdCar(out vec3 color, vec2 p)
+{
+    const float wheelRadius = 0.02f;
+    const vec2 carSize = vec2(0.05,0.08f);
+    
+    const vec3 wheelColor = vec3(163.0f, 163.0f, 163.0f);
+    const vec3 carColor = vec3(97.0f, 112.0f, 241.0f);
+    
+    float body = sdRect(p, carSize);
+    
+    if (body <= 0.0f)
+    {
+        color = carColor;
+        return;
+    }
+    
+    vec2 wheelOffset = carSize + vec2(wheelRadius / 2.0f, -wheelRadius / 2.0f);
+    
+    float rtWheel = sdCircle(p - vec2(wheelOffset.x, wheelOffset.y), wheelRadius);
+    float rbWheel = sdCircle(p - vec2(wheelOffset.x, -wheelOffset.y), wheelRadius);
+    float ltWheel = sdCircle(p - vec2(-wheelOffset.x, wheelOffset.y), wheelRadius);
+    float lbWheel = sdCircle(p - vec2(-wheelOffset.x, -wheelOffset.y), wheelRadius);
+    
+    if ((rtWheel <= 0.0) || (rbWheel <= 0.0) || (ltWheel <= 0.0) || (lbWheel <= 0.0))
+    {
+        color = wheelColor;
+    }
+}
+
+vec2 getCarPosition(vec2 uv) 
+{
+    float x = texelFetch(iChannel0, ivec2(0, 0), 0).r;
+    float y = -0.3;
+    vec2 basePos = uv - vec2(x, y);
+    
+    float dir = texelFetch(iChannel0, ivec2(1, 0), 0).r;
+    float angle = 0.0f;
+    if (dir > 0.0f)
+    {
+        angle = 35.0f;
+    }
+    else if (dir < 0.0f)
+    {
+        angle = -35.0f;
+    }
+    
+    basePos = rotate(basePos, angle);
+    return basePos;
+}
+
+void fallObjects(out vec3 color, vec2 uv)
+{
+    const int objectCount = 7;
+    const float resetTime = 1.0f;
+    const float fallSpeed = 0.3f;
+    const vec2 objectSize = vec2(0.1f, 0.1f);
+    const vec3 objectColor = vec3(160.0f, 160.0f, 160.0f);
+    
+    const float xRangeMin = -1.0f + objectSize.x;
+    const float xRangeMax = 1.0f - objectSize.x;
+    const float fallDistance = 0.8 - (-1.0);
+    const float timeToFallOff = fallDistance / fallSpeed; 
+    
+    for (int i = 0; i < objectCount; i++)
+    {
+        float seed = float(i) * PI + 1.0f;
+        
+        float respawnDelay = resetTime + 2.0 * fract(seed * 0.1 + 0.1);
+        float cycleTime = respawnDelay + timeToFallOff;
+        float phase = mod(iTime, cycleTime);
+
+        if (phase < respawnDelay) { continue; }
+        
+        float fallTime = phase - respawnDelay;
+
+        float y = 0.8 - fallTime * fallSpeed;
+
+        float x = xRangeMin + fract(seed * 0.5 + 0.5) * (xRangeMax - xRangeMin);
+
+        vec2 objPos = uv - vec2(x, y);
+        
+        float d;
+        
+        switch(int(seed * 10.0f) % 4)
+        {
+            case 0:
+                d = sdRect(objPos, objectSize);
+                break;
+            case 1:
+                d = sdCircle(objPos, objectSize.x);
+                break;
+            case 2:
+                d = sdEpicycloid(objPos, objectSize.x);
+                break;
+            case 3:
+                d = sdButterfly(objPos, objectSize.x);
+                break;
+        }
+        
+        if (d <= 0.0f)
+        {
+            float r = fract(seed * 5.0f) * 256.0f;
+            float g = fract(seed * 3.0f) * 256.0f;
+            float b = fract(seed * 7.0f) * 256.0f;
+            
+            color = vec3(r, g, b);
+        }
+    }
+}
+
+vec3 drawScene(vec2 uv)
+{
+    const vec3 backgroundColor = vec3(46.0f, 148.0f, 33.0f);
+    
+    vec3 color = backgroundColor;
+    color = sdRect(uv, vec2(0.4f, 1.0f)) > 0.0f ? color : vec3(106.0f);
+    
+    fallObjects(color, uv);
+    sdCar(color, getCarPosition(uv));
+
+    return color;
+}
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord)
+{
+    vec2 uv = (fragCoord - 0.5f * iResolution.xy) / iResolution.y;
+    
+    vec3 color = drawScene(uv);
+    
+    fragColor = vec4(color, 1.0f) / rgbaDivide;
+}
