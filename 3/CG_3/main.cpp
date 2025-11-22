@@ -106,9 +106,33 @@ struct PhongShader : IShader
     }
 };
 
+struct Wireframe : IShader
+{
+    const float edge_threshold = 0.04f;
+
+    virtual Vec4f vertex(int iface, int nthvert) override
+    {
+        Vec4f gl_Vertex = embed<4>(model->vert(iface, nthvert));
+        return Viewport * Projection * ModelView * gl_Vertex;
+    }
+
+    virtual bool fragment(Vec3f bar, TGAColor& color) override
+    {
+        if (bar.x < edge_threshold || bar.y < edge_threshold || bar.z < edge_threshold)
+        {
+            color = TGAColor(255, 255, 255);   
+        }
+        else
+        {
+            color = TGAColor(0, 0, 0);
+        }
+        return false;
+    }
+};
+
 int main()
 {
-	model = new Model("obj/african_head.obj");
+	model = new Model("res/african_head.obj");
 
 	lookat(eye, center, up);
 	viewport(width / 8, height / 8, width * 3 / 4, height * 3 / 4);
@@ -117,7 +141,7 @@ int main()
 	TGAImage image(width, height, TGAImage::RGB);
 	TGAImage zbuffer(width, height, TGAImage::GRAYSCALE);
 
-    PhongShader shader(light_dir, eye);
+    Wireframe shader;
 	for (int i = 0; i < model->nfaces(); i++)
 	{
 		Vec4f screen_coords[3];
@@ -130,7 +154,7 @@ int main()
 
 	image.flip_vertically();
 	image.write_tga_file("output.tga");
-	image.ShowImage("output.tga");
+	//image.ShowImage("output.tga");
 
 	delete model;
 	return 0;
