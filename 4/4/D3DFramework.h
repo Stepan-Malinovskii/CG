@@ -5,6 +5,20 @@
 #include "UploadBuffer.h"
 #include "MyGeometry.h"
 
+#include <d3dcompiler.h>
+
+#pragma push_macro("min")
+#pragma push_macro("max")
+#undef min
+#undef max
+
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+
+#pragma pop_macro("min")
+#pragma pop_macro("max")
+
 class D3DFramework : public BaseD3DApp
 {
 public:
@@ -39,7 +53,7 @@ private:
 	std::vector<D3D12_INPUT_ELEMENT_DESC> _inputLayout;
 	ComPtr<ID3D12PipelineState> _pso;
 
-	Matrix _world = Matrix::Identity;
+	Matrix _world = Matrix::CreateScale(0.001f);
 	Matrix _view = Matrix::Identity;
 	Matrix _proj = Matrix::CreatePerspectiveFieldOfView(XM_PIDIV4, AspectRatio(), 0.1f, 100.0f);
 

@@ -99,11 +99,11 @@ bool BaseD3DApp::InitMainWindow()
 
 bool BaseD3DApp::InitDirect3D()
 {
-#if defined(DEBUG) || defined(_DEBUG)
-    ComPtr<ID3D12Debug> debugController;
-    ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)));
-    debugController->EnableDebugLayer();
-#endif
+//#if defined(DEBUG) || defined(_DEBUG)
+//    ComPtr<ID3D12Debug> debugController;
+//    ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)));
+//    debugController->EnableDebugLayer();
+//#endif
 
     ThrowIfFailed(CreateDXGIFactory1(IID_PPV_ARGS(&_dxgiFactory)));
     ThrowIfFailed(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&_d3dDevice)));
