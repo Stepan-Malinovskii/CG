@@ -11,6 +11,7 @@
 #include "UploadBuffer.h"
 #include "MathHelper.h"
 #include "D3DUtil.h"
+#include "ModelStruct.h"
 
 using namespace Microsoft::WRL;
 
@@ -19,6 +20,8 @@ struct ObjectConstants
     XMFLOAT4X4 World = MathHelper::Identity4x4();
     XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
 };
+
+#define MaxLights 16
 
 struct PassConstants
 {
@@ -40,13 +43,6 @@ struct PassConstants
     XMFLOAT4 AmbientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
 
     Light Lights[MaxLights];
-};
-
-struct Vertex
-{
-    XMFLOAT3 Pos;
-    XMFLOAT3 Normal;
-    XMFLOAT2 TexC;
 };
 
 struct FrameResource

@@ -1,8 +1,13 @@
+#define NOMINMAX
+
 #include "D3DFramework.h"
+
 #include <iostream>
 #include <fstream> 
 #include <d3dcompiler.h>
 #include <array>
+#include <algorithm>
+
 #include "GeometryGenerator.h"
 #include "LunaDDSTextureLoader.h"
 #include "D3DUtil.h"
@@ -20,15 +25,13 @@ bool D3DFramework::Initialize()
 
 	_cbvSrvDescriptorSize = _d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-	LoadTextures();
+	BuildModelGeometry();
+
 	BuildRootSignature();
 	BuildDescriptorHeaps();
 	BuildShadersAndInputLayout();
 
-	//BuildModelGeometry();
-	BuildShapeGeometry();
-	BuildMaterials();
-	BuildRenderItems();
+	//BuildRenderItems();
 	BuildFrameResources();
 
 	BuildPSOs();
@@ -257,34 +260,6 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 	currPassCB->CopyData(0, _mainPassCB);
 }
 
-void D3DFramework::LoadTextures()
-{
-	std::unique_ptr<Texture> bricksTex = std::make_unique<Texture>();
-	bricksTex->Name = "bricksTex"; 
-	bricksTex->Filename = L"C:/Users/Stepan/Desktop/CG/5/Textures/bricks.dds";
-	ThrowIfFailed(CreateDDSTextureFromFile12(_d3dDevice.Get(),
-		_cmdList.Get(), bricksTex->Filename.c_str(),
-		bricksTex->Resource, bricksTex->UploadHeap));
-
-	auto stoneTex = std::make_unique<Texture>();
-	stoneTex->Name = "stoneTex";
-	stoneTex->Filename = L"C:/Users/Stepan/Desktop/CG/5/Textures/stone.dds";
-	ThrowIfFailed(CreateDDSTextureFromFile12(_d3dDevice.Get(),
-		_cmdList.Get(), stoneTex->Filename.c_str(),
-		stoneTex->Resource, stoneTex->UploadHeap));
-
-	auto tileTex = std::make_unique<Texture>();
-	tileTex->Name = "tileTex";
-	tileTex->Filename = L"C:/Users/Stepan/Desktop/CG/5/Textures/tile.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(_d3dDevice.Get(),
-		_cmdList.Get(), tileTex->Filename.c_str(),
-		tileTex->Resource, tileTex->UploadHeap));
-
-	_textures[bricksTex->Name] = std::move(bricksTex);
-	_textures[stoneTex->Name] = std::move(stoneTex);
-	_textures[tileTex->Name] = std::move(tileTex);
-}
-
 void D3DFramework::BuildRootSignature()
 {
 	CD3DX12_DESCRIPTOR_RANGE texTable;
@@ -318,38 +293,35 @@ void D3DFramework::BuildRootSignature()
 
 void D3DFramework::BuildDescriptorHeaps()
 {
+	UINT numTextures = (UINT)_textures.size();
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = 3;
+	srvHeapDesc.NumDescriptors = numTextures > 0 ? numTextures : 1;
 	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	ThrowIfFailed(_d3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&_srvDescriptorHeap)));
 
 	CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(_srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
-	auto bricksTex = _textures["bricksTex"]->Resource;
-	auto stoneTex = _textures["stoneTex"]->Resource;
-	auto tileTex = _textures["tileTex"]->Resource;
+	UINT descriptorIndex = 0;
+	for (auto& kv : _textures)
+	{
+		Texture* tex = kv.second.get();
+		ComPtr<ID3D12Resource> res = tex->Resource;
 
-	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srvDesc.Format = bricksTex->GetDesc().Format;
-	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	srvDesc.Texture2D.MostDetailedMip = 0;
-	srvDesc.Texture2D.MipLevels = bricksTex->GetDesc().MipLevels;
-	srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
-	_d3dDevice->CreateShaderResourceView(bricksTex.Get(), &srvDesc, hDescriptor);
+		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+		srvDesc.Texture2D.MostDetailedMip = 0;
+		srvDesc.Texture2D.MipLevels = (res != nullptr) ? (UINT)res->GetDesc().MipLevels : 1;
+		srvDesc.Format = (res != nullptr) ? res->GetDesc().Format : DXGI_FORMAT_R8G8B8A8_UNORM;
+		srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
-	hDescriptor.Offset(1, _cbvSrvDescriptorSize);
+		_d3dDevice->CreateShaderResourceView(res.Get(), &srvDesc, hDescriptor);
 
-	srvDesc.Format = stoneTex->GetDesc().Format;
-	srvDesc.Texture2D.MipLevels = stoneTex->GetDesc().MipLevels;
-	_d3dDevice->CreateShaderResourceView(stoneTex.Get(), &srvDesc, hDescriptor);
+		tex->SrvHeapIndex = descriptorIndex++;
 
-	hDescriptor.Offset(1, _cbvSrvDescriptorSize);
-
-	srvDesc.Format = tileTex->GetDesc().Format;
-	srvDesc.Texture2D.MipLevels = tileTex->GetDesc().MipLevels;
-	_d3dDevice->CreateShaderResourceView(tileTex.Get(), &srvDesc, hDescriptor);
+		hDescriptor.Offset(1, _cbvSrvDescriptorSize);
+	}
 }
 
 void D3DFramework::BuildShadersAndInputLayout()
@@ -367,200 +339,115 @@ void D3DFramework::BuildShadersAndInputLayout()
 	};
 }
 
-void D3DFramework::BuildShapeGeometry()
+void D3DFramework::BuildModelGeometry()
 {
 	GeometryGenerator geoGen;
-	GeometryGenerator::MeshData box = geoGen.CreateBox(1.5f, 0.5f, 1.5f, 3);
-	GeometryGenerator::MeshData grid = geoGen.CreateGrid(20.0f, 30.0f, 60, 40);
-	GeometryGenerator::MeshData sphere = geoGen.CreateSphere(0.5f, 20, 20);
-	GeometryGenerator::MeshData cylinder = geoGen.CreateCylinder(0.5f, 0.3f, 3.0f, 20, 20);
 
-	UINT boxVertexOffset = 0;
-	UINT gridVertexOffset = (UINT)box.Vertices.size();
-	UINT sphereVertexOffset = gridVertexOffset + (UINT)grid.Vertices.size();
-	UINT cylinderVertexOffset = sphereVertexOffset + (UINT)sphere.Vertices.size();
-
-	UINT boxIndexOffset = 0;
-	UINT gridIndexOffset = (UINT)box.Indices32.size();
-	UINT sphereIndexOffset = gridIndexOffset + (UINT)grid.Indices32.size();
-	UINT cylinderIndexOffset = sphereIndexOffset + (UINT)sphere.Indices32.size();
-
-	SubmeshGeometry boxSubmesh;
-	boxSubmesh.IndexCount = (UINT)box.Indices32.size();
-	boxSubmesh.StartIndexLocation = boxIndexOffset;
-	boxSubmesh.BaseVertexLocation = boxVertexOffset;
-
-	SubmeshGeometry gridSubmesh;
-	gridSubmesh.IndexCount = (UINT)grid.Indices32.size();
-	gridSubmesh.StartIndexLocation = gridIndexOffset;
-	gridSubmesh.BaseVertexLocation = gridVertexOffset;
-
-	SubmeshGeometry sphereSubmesh;
-	sphereSubmesh.IndexCount = (UINT)sphere.Indices32.size();
-	sphereSubmesh.StartIndexLocation = sphereIndexOffset;
-	sphereSubmesh.BaseVertexLocation = sphereVertexOffset;
-
-	SubmeshGeometry cylinderSubmesh;
-	cylinderSubmesh.IndexCount = (UINT)cylinder.Indices32.size();
-	cylinderSubmesh.StartIndexLocation = cylinderIndexOffset;
-	cylinderSubmesh.BaseVertexLocation = cylinderVertexOffset;
-
-	auto totalVertexCount =
-		box.Vertices.size() +
-		grid.Vertices.size() +
-		sphere.Vertices.size() +
-		cylinder.Vertices.size();
-
-	std::vector<Vertex> vertices(totalVertexCount);
-
-	UINT k = 0;
-	for (size_t i = 0; i < box.Vertices.size(); ++i, ++k)
-	{
-		vertices[k].Pos = box.Vertices[i].Position;
-		vertices[k].Normal = box.Vertices[i].Normal;
-		vertices[k].TexC = box.Vertices[i].TexC;
-	}
-
-	for (size_t i = 0; i < grid.Vertices.size(); ++i, ++k)
-	{
-		vertices[k].Pos = grid.Vertices[i].Position;
-		vertices[k].Normal = grid.Vertices[i].Normal;
-		vertices[k].TexC = grid.Vertices[i].TexC;
-	}
-
-	for (size_t i = 0; i < sphere.Vertices.size(); ++i, ++k)
-	{
-		vertices[k].Pos = sphere.Vertices[i].Position;
-		vertices[k].Normal = sphere.Vertices[i].Normal;
-		vertices[k].TexC = sphere.Vertices[i].TexC;
-	}
-
-	for (size_t i = 0; i < cylinder.Vertices.size(); ++i, ++k)
-	{
-		vertices[k].Pos = cylinder.Vertices[i].Position;
-		vertices[k].Normal = cylinder.Vertices[i].Normal;
-		vertices[k].TexC = cylinder.Vertices[i].TexC;
-	}
-
-	std::vector<std::uint16_t> indices;
-	indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
-	indices.insert(indices.end(), std::begin(grid.GetIndices16()), std::end(grid.GetIndices16()));
-	indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
-	indices.insert(indices.end(), std::begin(cylinder.GetIndices16()), std::end(cylinder.GetIndices16()));
-
-	const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-	const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+	std::unordered_map<std::string, GeometryGenerator::MaterialInfo*> materialMap;
+	GeometryGenerator::MeshInfo meshData = geoGen.LoadOBJ("C:/Users/Stepan/Desktop/CG/5/Models/Model.obj", materialMap);
 
 	auto geo = std::make_unique<MeshGeometry>();
-	geo->Name = "shapeGeo";
+	geo->Name = "loadedModel";
+
+	const UINT vbByteSize = (UINT)meshData.Vertices.size() * sizeof(Vertex);
+	const UINT ibByteSize = (UINT)meshData.Indices32.size() * sizeof(std::uint32_t);
 
 	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-	CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
 	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
 
-	geo->VertexBufferGPU = D3DUtil::CreateDefaultBuffer(_d3dDevice.Get(), _cmdList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+	CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), meshData.Vertices.data(), vbByteSize);
+	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), meshData.Indices32.data(), ibByteSize);
 
-	geo->IndexBufferGPU = D3DUtil::CreateDefaultBuffer(_d3dDevice.Get(), _cmdList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+	geo->VertexBufferGPU = D3DUtil::CreateDefaultBuffer(_d3dDevice.Get(), _cmdList.Get(),
+		meshData.Vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+	geo->IndexBufferGPU = D3DUtil::CreateDefaultBuffer(_d3dDevice.Get(), _cmdList.Get(),
+		meshData.Indices32.data(), ibByteSize, geo->IndexBufferUploader);
 
 	geo->VertexByteStride = sizeof(Vertex);
 	geo->VertexBufferByteSize = vbByteSize;
-	geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
 	geo->IndexBufferByteSize = ibByteSize;
 
-	geo->DrawArgs["box"] = boxSubmesh;
-	geo->DrawArgs["grid"] = gridSubmesh;
-	geo->DrawArgs["sphere"] = sphereSubmesh;
-	geo->DrawArgs["cylinder"] = cylinderSubmesh;
+	for (const auto& sub : meshData.Submeshes)
+	{
+		SubmeshGeometry subGeo;
+		subGeo.IndexCount = sub.IndexCount;
+		subGeo.StartIndexLocation = sub.IndexOffset;
+		subGeo.BaseVertexLocation = sub.VertexOffset;
+		geo->DrawArgs[sub.Name] = subGeo;
+	}
 
 	_geometries[geo->Name] = std::move(geo);
-}
 
-void D3DFramework::BuildModelGeometry()
-{
-	//auto modelData = LunaDX::ModelLoader::LoadModel(
-	//	"C:/Users/Stepan/Desktop/CG/5/Models/test.obj");
+	int srvIndex = 0;
+	int matCBIndex = 0;
+	for (auto& kv : materialMap)
+	{
+		std::string matName = kv.first;
+		GeometryGenerator::MaterialInfo* mi = kv.second;
 
-	//if (modelData.Vertices.empty())
-	//{
-	//	MessageBox(0, L"Failed to load model", 0, 0);
-	//	return;
-	//}
+		int texIndex = -1;
+		if (!mi->DiffuseTextureName.empty())
+		{
+			std::wstring texFile = L"C:/Users/Stepan/Desktop/CG/5/Textures/" + std::wstring(mi->DiffuseTextureName.begin(), mi->DiffuseTextureName.end());
 
-	//std::vector<Vertex> vertices(modelData.Vertices.size());
-	//for (size_t i = 0; i < modelData.Vertices.size(); ++i)
-	//{
-	//	vertices[i].Pos = modelData.Vertices[i].Position;
-	//	vertices[i].Normal = modelData.Vertices[i].Normal;
-	//	vertices[i].TexC = modelData.Vertices[i].TexC;
-	//}
+			if (_textures.count(mi->DiffuseTextureName) == 0)
+			{
+				auto tex = std::make_unique<Texture>();
+				tex->Name = mi->DiffuseTextureName;
+				tex->Filename = texFile;
+				ThrowIfFailed(CreateDDSTextureFromFile12(_d3dDevice.Get(), _cmdList.Get(),
+					texFile.c_str(), tex->Resource, tex->UploadHeap));
 
-	//const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-	//const UINT ibByteSize = (UINT)modelData.Indices.size() * sizeof(uint32_t);
+				tex->SrvHeapIndex = srvIndex++;
+				_textures[tex->Name] = std::move(tex);
+			}
+			texIndex = _textures[mi->DiffuseTextureName]->SrvHeapIndex;
+		}
+		else if (!_textures.empty())
+		{
+			texIndex = 0;
+		}
 
-	//auto geo = std::make_unique<MeshGeometry>();
-	//geo->Name = "loadedModel";
+		auto mat = std::make_unique<Material>();
+		mat->Name = matName;
+		mat->MatCBIndex = matCBIndex++;
+		mat->DiffuseAlbedo = XMFLOAT4(mi->DiffuseColor.x, mi->DiffuseColor.y, mi->DiffuseColor.z, mi->DiffuseColor.w);
+		mat->DiffuseSrvHeapIndex = texIndex;
+		mat->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
+		mat->Roughness = 0.3f;
 
-	//ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-	//CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+		_materials[matName] = std::move(mat);
+	}
 
-	//ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-	//CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), modelData.Indices.data(), ibByteSize);
+	UINT objCBIndex = 0;
+	for (const auto& sub : meshData.Submeshes)
+	{
+		auto ritem = std::make_unique<RenderItem>();
+		XMStoreFloat4x4(&ritem->World, XMMatrixIdentity());
+		XMStoreFloat4x4(&ritem->TexTransform, XMMatrixIdentity());
 
-	//geo->VertexBufferGPU = D3DUtil::CreateDefaultBuffer(_d3dDevice.Get(), _cmdList.Get(),
-	//	vertices.data(), vbByteSize, geo->VertexBufferUploader);
+		ritem->ObjCBIndex = objCBIndex++;
+		ritem->Geo = _geometries["loadedModel"].get();
 
-	//geo->IndexBufferGPU = D3DUtil::CreateDefaultBuffer(_d3dDevice.Get(), _cmdList.Get(),
-	//	modelData.Indices.data(), ibByteSize, geo->IndexBufferUploader);
+		Material* matPtr = nullptr;
+		if (!sub.MaterialName.empty() && _materials.count(sub.MaterialName))
+			matPtr = _materials[sub.MaterialName].get();
+		else if (!_materials.empty())
+			matPtr = _materials.begin()->second.get();
 
-	//geo->VertexByteStride = sizeof(Vertex);
-	//geo->VertexBufferByteSize = vbByteSize;
-	//geo->IndexFormat = DXGI_FORMAT_R32_UINT;
-	//geo->IndexBufferByteSize = ibByteSize;
+		ritem->Mat = matPtr;
+		ritem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+		ritem->IndexCount = sub.IndexCount;
+		ritem->StartIndexLocation = sub.IndexOffset;
+		ritem->BaseVertexLocation = sub.VertexOffset;
 
-	//for (const auto& sub : modelData.Submeshes)
-	//{
-	//	SubmeshGeometry subGeo;
-	//	subGeo.IndexCount = sub.IndexCount;
-	//	subGeo.StartIndexLocation = sub.IndexOffset;
-	//	subGeo.BaseVertexLocation = sub.VertexOffset;
-	//	geo->DrawArgs[sub.Name] = subGeo;
-	//}
+		_allRitems.push_back(std::move(ritem));
+	}
 
-	//_geometries[geo->Name] = std::move(geo);
-	////_modelSubmeshes = modelData.Submeshes;
-}
-
-void D3DFramework::BuildMaterials()
-{
-	auto bricks0 = std::make_unique<Material>();
-	bricks0->Name = "bricks0";
-	bricks0->MatCBIndex = 0;
-	bricks0->DiffuseSrvHeapIndex = 0;
-	bricks0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	bricks0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	bricks0->Roughness = 0.1f;
-
-	auto stone0 = std::make_unique<Material>();
-	stone0->Name = "stone0";
-	stone0->MatCBIndex = 1;
-	stone0->DiffuseSrvHeapIndex = 1;
-	stone0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	stone0->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
-	stone0->Roughness = 0.3f;
-
-	auto tile0 = std::make_unique<Material>();
-	tile0->Name = "tile0";
-	tile0->MatCBIndex = 2;
-	tile0->DiffuseSrvHeapIndex = 2;
-	tile0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	tile0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	tile0->Roughness = 0.3f;
-
-	_materials["bricks0"] = std::move(bricks0);
-	_materials["stone0"] = std::move(stone0);
-	_materials["tile0"] = std::move(tile0);
+	_opaqueRitems.clear();
+	for (auto& e : _allRitems) { _opaqueRitems.push_back(e.get()); }
 }
 
 void D3DFramework::BuildPSOs()
@@ -624,7 +511,7 @@ void D3DFramework::BuildRenderItems()
 	XMStoreFloat4x4(&gridRitem->TexTransform, XMMatrixScaling(8.0f, 8.0f, 1.0f));
 	gridRitem->ObjCBIndex = 1;
 	gridRitem->Mat = _materials["tile0"].get();
-	gridRitem->Geo = _geometries["shapeGeo"].get();
+	gridRitem->Geo = _geometries[""].get();
 	gridRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	gridRitem->IndexCount = gridRitem->Geo->DrawArgs["grid"].IndexCount;
 	gridRitem->StartIndexLocation = gridRitem->Geo->DrawArgs["grid"].StartIndexLocation;

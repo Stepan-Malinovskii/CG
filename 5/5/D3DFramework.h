@@ -25,6 +25,7 @@
 #include "D3DUtil.h"
 #include "MathHelper.h"
 #include "ThrowIfFaild.h" 
+#include "ModelStruct.h"
 
 using namespace Microsoft::WRL;
 using namespace DirectX;
@@ -79,15 +80,11 @@ private:
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
 
-    void LoadTextures();
-
     void BuildRootSignature();
     void BuildDescriptorHeaps();
 
     void BuildShadersAndInputLayout();
-    void BuildShapeGeometry();
     void BuildModelGeometry();
-    void BuildMaterials();
 
     void BuildPSOs();
 
@@ -114,8 +111,6 @@ private:
     std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> _psos;
 
     std::vector<D3D12_INPUT_ELEMENT_DESC> _inputLayout;
-
-    //ComPtr<ID3D12PipelineState> _opaquePSO = nullptr;
 
     std::vector<std::unique_ptr<RenderItem>> _allRitems;
     std::vector<RenderItem*> _opaqueRitems;
