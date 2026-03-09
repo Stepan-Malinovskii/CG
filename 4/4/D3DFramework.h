@@ -53,7 +53,7 @@ private:
 	std::vector<D3D12_INPUT_ELEMENT_DESC> _inputLayout;
 	ComPtr<ID3D12PipelineState> _pso;
 
-	Matrix _world = Matrix::CreateScale(0.001f);
+	Matrix _world = Matrix::Identity;
 	Matrix _view = Matrix::Identity;
 	Matrix _proj = Matrix::CreatePerspectiveFieldOfView(XM_PIDIV4, AspectRatio(), 0.1f, 100.0f);
 

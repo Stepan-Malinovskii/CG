@@ -26,7 +26,7 @@ bool D3DFramework::Initialize()
 
 void D3DFramework::BuildShadersAndInputLayout()
 {
-	DWORD fileAttr = GetFileAttributes(L"C:/Users/HUAWEI/Desktop/CG/4/Shaders/shaders.hlsl");
+	DWORD fileAttr = GetFileAttributes(L"C:/Users/Stepan/Desktop/CG/4/Shaders/shaders.hlsl");
 
 	if (fileAttr == INVALID_FILE_ATTRIBUTES)
 	{
@@ -35,10 +35,10 @@ void D3DFramework::BuildShadersAndInputLayout()
 		return;
 	}
 
-	_vsByteCode = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/4/Shaders/shaders.hlsl", nullptr, "VS", "vs_5_0");
+	_vsByteCode = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/4/Shaders/shaders.hlsl", nullptr, "VS", "vs_5_0");
 	std::cout << "Vertex shader are compiled" << std::endl;
 
-	_psByteCode = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/4/Shaders/shaders.hlsl", nullptr, "PS", "ps_5_0");
+	_psByteCode = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/4/Shaders/shaders.hlsl", nullptr, "PS", "ps_5_0");
 	std::cout << "Pixel shader are compiled" << std::endl;
 
 	_inputLayout =
@@ -51,61 +51,43 @@ void D3DFramework::BuildShadersAndInputLayout()
 
 void D3DFramework::InitializeGeometry()
 {
-	Assimp::Importer importer;
-	const aiScene* scene = importer.ReadFile(
-		"C:/Users/HUAWEI/Desktop/CG/4/OBJ/Sponza.obj",
-		aiProcess_Triangulate |
-		aiProcess_GenNormals |
-		aiProcess_JoinIdenticalVertices |
-		aiProcess_PreTransformVertices |
-		aiProcess_OptimizeMeshes |
-		aiProcess_OptimizeGraph
-	);
-
-	if (!scene || !scene->HasMeshes())
+	std::vector<Vertex> vertices =
 	{
-		MessageBoxW(nullptr, L"Failed to load model!", L"Error", MB_OK);
-		return;
-	}
+		{ XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT4(Colors::White) },
+		{ XMFLOAT3(-1.0f, +1.0f, -1.0f), XMFLOAT4(Colors::Black) },
+		{ XMFLOAT3(+1.0f, +1.0f, -1.0f), XMFLOAT4(Colors::Red) },
+		{ XMFLOAT3(+1.0f, -1.0f, -1.0f), XMFLOAT4(Colors::Green) },
+		{ XMFLOAT3(-1.0f, -1.0f, +1.0f), XMFLOAT4(Colors::Blue) },
+		{ XMFLOAT3(-1.0f, +1.0f, +1.0f), XMFLOAT4(Colors::Yellow) },
+		{ XMFLOAT3(+1.0f, +1.0f, +1.0f), XMFLOAT4(Colors::Cyan) },
+		{ XMFLOAT3(+1.0f, -1.0f, +1.0f), XMFLOAT4(Colors::Magenta) }
+	};
 
-	std::vector<Vertex> vertices;
-	std::vector<std::uint32_t> indices;
+	std::vector<std::uint16_t> indices = {
+		0, 1, 2,
+		0, 2, 3,
 
-	for (UINT i = 0; i < scene->mNumMeshes; ++i)
-	{
-		const aiMesh* mesh = scene->mMeshes[i];
-		if (!mesh || mesh->mNumVertices == 0 || mesh->mNumFaces == 0)
-			continue;
+		4, 6, 5,
+		4, 7, 6,
 
-		UINT baseVertex = static_cast<UINT>(vertices.size());
+		4, 5, 1,
+		4, 1, 0,
 
-		for (UINT v = 0; v < mesh->mNumVertices; ++v)
-		{
-			Vector3 pos(mesh->mVertices[v].x, mesh->mVertices[v].y, mesh->mVertices[v].z);
-			float gray = 0.5f + 0.5f * (pos.y / 4000.0f);
-			gray = gray < 0.0f ? 0.0f : gray > 1.0f ? 1.0f: gray;
-			vertices.push_back({ pos, XMFLOAT4(gray, gray, gray, 1.0f) });
-		}
+		3, 2, 6,
+		3, 6, 7,
 
-		for (UINT f = 0; f < mesh->mNumFaces; ++f)
-		{
-			const aiFace& face = mesh->mFaces[f];
-			if (face.mNumIndices != 3) continue;
+		1, 5, 6,
+		1, 6, 2,
 
-			indices.push_back(baseVertex + static_cast<std::uint32_t>(face.mIndices[0]));
-			indices.push_back(baseVertex + static_cast<std::uint32_t>(face.mIndices[1]));
-			indices.push_back(baseVertex + static_cast<std::uint32_t>(face.mIndices[2]));
-		}
-	}
-
-	std::cout << "Total Vertices: " << vertices.size() << std::endl;
-	std::cout << "Total Indices: " << indices.size() << std::endl;
+		4, 0, 3,
+		4, 3, 7
+	};
 
 	UINT vbByteSize = static_cast<UINT>(vertices.size() * sizeof(Vertex));
 	UINT ibByteSize = static_cast<UINT>(indices.size() * sizeof(std::uint32_t)); 
 
 	_boxGeo = std::make_unique<MeshGeometry>();
-	_boxGeo->Name = "sponza";
+	_boxGeo->Name = "Box";
 
 	ThrowIfFailed(D3DCreateBlob(vbByteSize, &_boxGeo->VertexBufferCPU));
 	CopyMemory(_boxGeo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
@@ -125,7 +107,7 @@ void D3DFramework::InitializeGeometry()
 	submesh.IndexCount = static_cast<UINT>(indices.size());
 	submesh.StartIndexLocation = 0;
 	submesh.BaseVertexLocation = 0;
-	_boxGeo->DrawArgs["sponza"] = submesh;
+	_boxGeo->DrawArgs["Box"] = submesh;
 }
 
 void D3DFramework::CreateCBVDescriptorHeap()
@@ -250,7 +232,7 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	_cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	_cmdList->SetGraphicsRootDescriptorTable(0, _cbvHeap->GetGPUDescriptorHandleForHeapStart());
-	_cmdList->DrawIndexedInstanced(_boxGeo->DrawArgs["sponza"].IndexCount, 1, 0, 0, 0);
+	_cmdList->DrawIndexedInstanced(_boxGeo->DrawArgs["Box"].IndexCount, 1, 0, 0, 0);
 
 	CD3DX12_RESOURCE_BARRIER barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
 	_cmdList->ResourceBarrier(1, &barrier2);
