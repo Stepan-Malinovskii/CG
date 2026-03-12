@@ -2,7 +2,7 @@
 
 #include "GeometryGenerator.h"
 
-#include <assimp/Importer.hpp>
+#include <assimp/cimport.h>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
@@ -10,93 +10,185 @@
 #include <iostream>
 #include <functional>
 #include <algorithm>
+#include <cctype>
+
+using namespace DirectX;
+
+namespace {
+
+    static std::string ToLowerAscii(const std::string& s)
+    {
+        std::string out = s;
+        std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) { return std::tolower(c); });
+        return out;
+    }
+
+    static std::string ExtractTextureFilename(const aiString& aiPath)
+    {
+        try {
+            std::filesystem::path p(aiPath.C_Str());
+            std::string name = p.filename().string();
+            return ToLowerAscii(name);
+        }
+        catch (...) {
+            return ToLowerAscii(std::string(aiPath.C_Str()));
+        }
+    }
+
+    static GeometryGenerator::MaterialInfo* ParseMaterial(const aiMaterial* mat, const std::string& defaultName)
+    {
+        auto* mi = new GeometryGenerator::MaterialInfo();
+        mi->Name = defaultName;
+
+        aiString aName;
+        if (mat->Get(AI_MATKEY_NAME, aName) == AI_SUCCESS && aName.length > 0) {
+            mi->Name = std::string(aName.C_Str());
+        }
+
+        aiColor3D diffCol(1.0f, 1.0f, 1.0f);
+        if (mat->Get(AI_MATKEY_COLOR_DIFFUSE, diffCol) == AI_SUCCESS) {
+            mi->DiffuseColor = XMFLOAT4(diffCol.r, diffCol.g, diffCol.b, 1.0f);
+        }
+
+        aiString texPath;
+        if (mat->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS) {
+            mi->DiffuseTextureName = ExtractTextureFilename(texPath);
+        }
+        else if (mat->GetTexture(aiTextureType_BASE_COLOR, 0, &texPath) == AI_SUCCESS) {
+            mi->DiffuseTextureName = ExtractTextureFilename(texPath);
+        }
+        else {
+            mi->DiffuseTextureName = "";
+        }
+
+        return mi;
+    }
+
+}
+
+static void ParseMeshHelper(
+    const aiScene* scene,
+    aiMesh* mesh,
+    GeometryGenerator::MeshInfo& meshInfo,
+    std::unordered_map<std::string, GeometryGenerator::MaterialInfo*>& materialMap)
+{
+    uint32_t vertexOffset = (uint32_t)meshInfo.Vertices.size();
+    uint32_t indexOffset = (uint32_t)meshInfo.Indices32.size();
+
+    //
+    // vertices
+    //
+    for (uint32_t v = 0; v < mesh->mNumVertices; v++)
+    {
+        Vertex vert;
+
+        vert.Pos =
+        {
+            mesh->mVertices[v].x,
+            mesh->mVertices[v].y,
+            mesh->mVertices[v].z
+        };
+
+        if (mesh->HasNormals())
+        {
+            vert.Normal =
+            {
+                mesh->mNormals[v].x,
+                mesh->mNormals[v].y,
+                mesh->mNormals[v].z
+            };
+        }
+        else
+        {
+            vert.Normal = { 0,1,0 };
+        }
+
+        if (mesh->HasTextureCoords(0))
+        {
+            vert.TexC =
+            {
+                mesh->mTextureCoords[0][v].x,
+                1.0f - mesh->mTextureCoords[0][v].y
+            };
+        }
+        else
+        {
+            vert.TexC = { 0,0 };
+        }
+
+        meshInfo.Vertices.push_back(vert);
+    }
+
+    //
+    // indices (LOCAL)
+    //
+    for (uint32_t f = 0; f < mesh->mNumFaces; f++)
+    {
+        aiFace& face = mesh->mFaces[f];
+
+        meshInfo.Indices32.push_back(face.mIndices[0]);
+        meshInfo.Indices32.push_back(face.mIndices[1]);
+        meshInfo.Indices32.push_back(face.mIndices[2]);
+    }
+
+    //
+    // material
+    //
+    std::string materialName = "default";
+
+    if (mesh->mMaterialIndex >= 0 &&
+        mesh->mMaterialIndex < scene->mNumMaterials)
+    {
+        aiMaterial* mat = scene->mMaterials[mesh->mMaterialIndex];
+
+        aiString name;
+
+        if (mat->Get(AI_MATKEY_NAME, name) == AI_SUCCESS)
+            materialName = name.C_Str();
+
+        if (materialMap.count(materialName) == 0)
+            materialMap[materialName] =
+            ParseMaterial(mat, materialName);
+    }
+
+    //
+    // submesh
+    //
+    GeometryGenerator::SubmeshInfo sub;
+
+    sub.Name =
+        mesh->mName.length > 0 ?
+        mesh->mName.C_Str() :
+        "submesh_" + std::to_string(meshInfo.Submeshes.size());
+
+    sub.MaterialName = materialName;
+    sub.VertexOffset = vertexOffset;
+    sub.IndexOffset = indexOffset;
+    sub.IndexCount = mesh->mNumFaces * 3;
+
+    meshInfo.Submeshes.push_back(sub);
+}
+
+static void ParseNodeHelper(aiNode* node, const aiScene* scene, GeometryGenerator::MeshInfo& meshInfo,
+    std::unordered_map<std::string, GeometryGenerator::MaterialInfo*>& materialMap)
+{
+    for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
+        aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+        ParseMeshHelper(scene, mesh, meshInfo, materialMap);
+    }
+
+    for (unsigned int i = 0; i < node->mNumChildren; ++i) {
+        ParseNodeHelper(node->mChildren[i], scene, meshInfo, materialMap);
+    }
+}
 
 GeometryGenerator::MeshInfo GeometryGenerator::LoadOBJ(const std::string& path, std::unordered_map<std::string, MaterialInfo*>& materialMap)
 {
-    MeshInfo meshData;
-    Assimp::Importer importer;
+    MeshInfo meshInfo;
 
-    const aiScene* scene = importer.ReadFile(path,
-        aiProcess_Triangulate |
-        aiProcess_GenNormals |
-        aiProcess_JoinIdenticalVertices);
+    const aiScene* scene = aiImportFile(path.c_str(), aiProcessPreset_TargetRealtime_MaxQuality | aiProcess_Triangulate);
 
-    if (!scene || !scene->mRootNode) {
-        std::cerr << "Failed to load: " << path << " Error: " << importer.GetErrorString() << std::endl;
-        return meshData;
-    }
+    ParseNodeHelper(scene->mRootNode, scene, meshInfo, materialMap);
 
-    std::vector<Vertex> vertices;
-    std::vector<uint32_t> indices;
-    std::vector<SubmeshInfo> submeshes;
-
-    std::function<void(aiNode*, const aiScene*)> processNode;
-    processNode = [&](aiNode* node, const aiScene* scene)
-        {
-            for (uint32_t i = 0; i < node->mNumMeshes; ++i) {
-                aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-
-                SubmeshInfo submesh;
-                submesh.Name = mesh->mName.length ? mesh->mName.C_Str() : "submesh_" + std::to_string(submeshes.size());
-                submesh.VertexOffset = static_cast<UINT>(vertices.size());
-                submesh.IndexOffset = static_cast<UINT>(indices.size());
-
-                for (uint32_t v = 0; v < mesh->mNumVertices; ++v) {
-                    Vertex vert;
-                    vert.Pos = { mesh->mVertices[v].x, mesh->mVertices[v].y, mesh->mVertices[v].z };
-                    vert.Normal = mesh->HasNormals() ? DirectX::XMFLOAT3(mesh->mNormals[v].x, mesh->mNormals[v].y, mesh->mNormals[v].z)
-                        : DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f);
-                    vert.TexC = mesh->HasTextureCoords(0) ? DirectX::XMFLOAT2(mesh->mTextureCoords[0][v].x, 1.0f - mesh->mTextureCoords[0][v].y)
-                        : DirectX::XMFLOAT2(0.0f, 0.0f);
-                    vertices.push_back(vert);
-                }
-
-                for (uint32_t f = 0; f < mesh->mNumFaces; ++f) {
-                    aiFace face = mesh->mFaces[f];
-                    for (uint32_t j = 0; j < face.mNumIndices; ++j) {
-                        indices.push_back(face.mIndices[j] + submesh.VertexOffset);
-                    }
-                }
-
-                submesh.VertexCount = static_cast<UINT>(vertices.size()) - submesh.VertexOffset;
-                submesh.IndexCount = static_cast<UINT>(indices.size()) - submesh.IndexOffset;
-
-                if (mesh->mMaterialIndex >= 0 && mesh->mMaterialIndex < scene->mNumMaterials) {
-                    aiMaterial* mat = scene->mMaterials[mesh->mMaterialIndex];
-
-                    aiColor3D color;
-                    MaterialInfo* myMat = new MaterialInfo();
-                    myMat->Name = mesh->mName.length ? mesh->mName.C_Str() : "material_" + std::to_string(mesh->mMaterialIndex);
-
-                    if (mat->Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS)
-                        myMat->DiffuseColor = { color.r, color.g, color.b, 1.0f };
-
-                    aiString texPath;
-                    if (mat->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS)
-                    {
-                        std::filesystem::path p(texPath.C_Str());
-                        std::string texName = p.filename().string();
-                        std::transform(texName.begin(), texName.end(), texName.begin(), ::tolower);
-
-                        myMat->DiffuseTextureName = texName;
-                    }
-
-                    materialMap[myMat->Name] = myMat;
-                    submesh.MaterialName = myMat->Name;
-                }
-
-                submeshes.push_back(submesh);
-            }
-
-            for (uint32_t i = 0; i < node->mNumChildren; ++i)
-                processNode(node->mChildren[i], scene);
-        };
-
-    processNode(scene->mRootNode, scene);
-
-    meshData.Vertices = std::move(vertices);
-    meshData.Indices32 = std::move(indices);
-    meshData.Submeshes = std::move(submeshes);
-
-    return meshData;
+    return meshInfo;
 }

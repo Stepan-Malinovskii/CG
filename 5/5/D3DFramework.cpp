@@ -12,6 +12,8 @@
 #include "LunaDDSTextureLoader.h"
 #include "D3DUtil.h"
 #include "ThrowIfFaild.h"
+#include "WICTextureLoader.h"
+#include <ResourceUploadBatch.h>
 
 D3DFramework::D3DFramework(HINSTANCE hInstance) : BaseD3DApp(hInstance) {}
 
@@ -302,10 +304,16 @@ void D3DFramework::BuildDescriptorHeaps()
 
 	CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(_srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
-	UINT descriptorIndex = 0;
+	std::vector<Texture*> orderList;
 	for (auto& kv : _textures)
+		orderList.push_back(kv.second.get());
+
+	std::sort(orderList.begin(), orderList.end(),
+		[](Texture* a, Texture* b) { return a->SrvHeapIndex < b->SrvHeapIndex; });
+
+	UINT descriptorIndex = 0;
+	for (auto& tex : orderList)
 	{
-		Texture* tex = kv.second.get();
 		ComPtr<ID3D12Resource> res = tex->Resource;
 
 		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
@@ -344,110 +352,185 @@ void D3DFramework::BuildModelGeometry()
 	GeometryGenerator geoGen;
 
 	std::unordered_map<std::string, GeometryGenerator::MaterialInfo*> materialMap;
-	GeometryGenerator::MeshInfo meshData = geoGen.LoadOBJ("C:/Users/Stepan/Desktop/CG/5/Models/Model.obj", materialMap);
+	GeometryGenerator::MeshInfo meshData =
+		geoGen.LoadOBJ("C:/Users/Stepan/Desktop/CG/5/Models/Model.obj", materialMap);
 
+	//
+	// Create MeshGeometry
+	//
 	auto geo = std::make_unique<MeshGeometry>();
 	geo->Name = "loadedModel";
 
-	const UINT vbByteSize = (UINT)meshData.Vertices.size() * sizeof(Vertex);
-	const UINT ibByteSize = (UINT)meshData.Indices32.size() * sizeof(std::uint32_t);
+	UINT vbByteSize = (UINT)meshData.Vertices.size() * sizeof(Vertex);
+	UINT ibByteSize = (UINT)meshData.Indices32.size() * sizeof(uint32_t);
 
 	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+	CopyMemory(geo->VertexBufferCPU->GetBufferPointer(),
+		meshData.Vertices.data(), vbByteSize);
+
 	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(),
+		meshData.Indices32.data(), ibByteSize);
 
-	CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), meshData.Vertices.data(), vbByteSize);
-	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), meshData.Indices32.data(), ibByteSize);
+	geo->VertexBufferGPU = D3DUtil::CreateDefaultBuffer(
+		_d3dDevice.Get(),
+		_cmdList.Get(),
+		meshData.Vertices.data(),
+		vbByteSize,
+		geo->VertexBufferUploader);
 
-	geo->VertexBufferGPU = D3DUtil::CreateDefaultBuffer(_d3dDevice.Get(), _cmdList.Get(),
-		meshData.Vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-	geo->IndexBufferGPU = D3DUtil::CreateDefaultBuffer(_d3dDevice.Get(), _cmdList.Get(),
-		meshData.Indices32.data(), ibByteSize, geo->IndexBufferUploader);
+	geo->IndexBufferGPU = D3DUtil::CreateDefaultBuffer(
+		_d3dDevice.Get(),
+		_cmdList.Get(),
+		meshData.Indices32.data(),
+		ibByteSize,
+		geo->IndexBufferUploader);
 
 	geo->VertexByteStride = sizeof(Vertex);
 	geo->VertexBufferByteSize = vbByteSize;
 	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
 	geo->IndexBufferByteSize = ibByteSize;
 
+	//
+	// Submeshes
+	//
 	for (const auto& sub : meshData.Submeshes)
 	{
 		SubmeshGeometry subGeo;
+
 		subGeo.IndexCount = sub.IndexCount;
 		subGeo.StartIndexLocation = sub.IndexOffset;
+
+		// VertexOffset используется как BaseVertexLocation
 		subGeo.BaseVertexLocation = sub.VertexOffset;
+
 		geo->DrawArgs[sub.Name] = subGeo;
 	}
 
 	_geometries[geo->Name] = std::move(geo);
 
+	//
+	// Create textures
+	//
 	int srvIndex = 0;
+
+	for (auto& kv : materialMap)
+	{
+		auto* mi = kv.second;
+
+		if (!mi->DiffuseTextureName.empty())
+		{
+			std::string texName = mi->DiffuseTextureName;
+
+			if (_textures.count(texName) == 0)
+			{
+				auto tex = std::make_unique<Texture>();
+
+				tex->Name = texName;
+
+				std::wstring texPath =
+					L"C:/Users/Stepan/Desktop/CG/5/Textures/" +
+					std::wstring(texName.begin(), texName.end());
+
+				tex->Filename = texPath;
+
+				ResourceUploadBatch resourceUpload(_d3dDevice.Get());
+				resourceUpload.Begin();
+
+				ThrowIfFailed(DirectX::CreateWICTextureFromFile(
+					_d3dDevice.Get(),
+					resourceUpload,
+					texPath.c_str(),
+					tex->Resource.ReleaseAndGetAddressOf(),
+					true
+				));
+
+				auto uploadResourcesFinished = resourceUpload.End(_cmdQueue.Get());
+				uploadResourcesFinished.wait();
+
+				tex->SrvHeapIndex = srvIndex++;
+
+				_textures[texName] = std::move(tex);
+			}
+		}
+	}
+
+	//
+	// Create materials
+	//
 	int matCBIndex = 0;
+
 	for (auto& kv : materialMap)
 	{
 		std::string matName = kv.first;
-		GeometryGenerator::MaterialInfo* mi = kv.second;
-
-		int texIndex = -1;
-		if (!mi->DiffuseTextureName.empty())
-		{
-			std::wstring texFile = L"C:/Users/Stepan/Desktop/CG/5/Textures/" + std::wstring(mi->DiffuseTextureName.begin(), mi->DiffuseTextureName.end());
-
-			if (_textures.count(mi->DiffuseTextureName) == 0)
-			{
-				auto tex = std::make_unique<Texture>();
-				tex->Name = mi->DiffuseTextureName;
-				tex->Filename = texFile;
-				ThrowIfFailed(CreateDDSTextureFromFile12(_d3dDevice.Get(), _cmdList.Get(),
-					texFile.c_str(), tex->Resource, tex->UploadHeap));
-
-				tex->SrvHeapIndex = srvIndex++;
-				_textures[tex->Name] = std::move(tex);
-			}
-			texIndex = _textures[mi->DiffuseTextureName]->SrvHeapIndex;
-		}
-		else if (!_textures.empty())
-		{
-			texIndex = 0;
-		}
+		auto* mi = kv.second;
 
 		auto mat = std::make_unique<Material>();
+
 		mat->Name = matName;
 		mat->MatCBIndex = matCBIndex++;
-		mat->DiffuseAlbedo = XMFLOAT4(mi->DiffuseColor.x, mi->DiffuseColor.y, mi->DiffuseColor.z, mi->DiffuseColor.w);
-		mat->DiffuseSrvHeapIndex = texIndex;
-		mat->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
+
+		mat->DiffuseAlbedo =
+		{
+			mi->DiffuseColor.x,
+			mi->DiffuseColor.y,
+			mi->DiffuseColor.z,
+			mi->DiffuseColor.w
+		};
+
+		if (_textures.count(mi->DiffuseTextureName))
+			mat->DiffuseSrvHeapIndex = _textures[mi->DiffuseTextureName]->SrvHeapIndex;
+		else
+			mat->DiffuseSrvHeapIndex = -1;
+
+		mat->FresnelR0 = { 0.01f,0.01f,0.01f };
 		mat->Roughness = 0.3f;
 
 		_materials[matName] = std::move(mat);
 	}
 
+	//
+	// RenderItems
+	//
 	UINT objCBIndex = 0;
+
 	for (const auto& sub : meshData.Submeshes)
 	{
 		auto ritem = std::make_unique<RenderItem>();
+
 		XMStoreFloat4x4(&ritem->World, XMMatrixIdentity());
 		XMStoreFloat4x4(&ritem->TexTransform, XMMatrixIdentity());
 
 		ritem->ObjCBIndex = objCBIndex++;
+
 		ritem->Geo = _geometries["loadedModel"].get();
 
-		Material* matPtr = nullptr;
-		if (!sub.MaterialName.empty() && _materials.count(sub.MaterialName))
-			matPtr = _materials[sub.MaterialName].get();
-		else if (!_materials.empty())
-			matPtr = _materials.begin()->second.get();
+		auto& draw = ritem->Geo->DrawArgs[sub.Name];
 
-		ritem->Mat = matPtr;
-		ritem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-		ritem->IndexCount = sub.IndexCount;
-		ritem->StartIndexLocation = sub.IndexOffset;
-		ritem->BaseVertexLocation = sub.VertexOffset;
+		ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+
+		ritem->IndexCount = draw.IndexCount;
+		ritem->StartIndexLocation = draw.StartIndexLocation;
+		ritem->BaseVertexLocation = draw.BaseVertexLocation;
+
+		//
+		// assign material
+		//
+		if (!sub.MaterialName.empty() && _materials.count(sub.MaterialName))
+			ritem->Mat = _materials[sub.MaterialName].get();
+		else
+			ritem->Mat = _materials.begin()->second.get();
 
 		_allRitems.push_back(std::move(ritem));
 	}
 
+	//
+	// opaque items
+	//
 	_opaqueRitems.clear();
-	for (auto& e : _allRitems) { _opaqueRitems.push_back(e.get()); }
+
+	for (auto& e : _allRitems)
+		_opaqueRitems.push_back(e.get());
 }
 
 void D3DFramework::BuildPSOs()
