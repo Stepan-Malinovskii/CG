@@ -1,5 +1,5 @@
-#ifndef GEOMETRY_GENERATOR_HPP
-#define GEOMETRY_GENERATOR_HPP
+#ifndef MODEL_PARSE_HPP
+#define MODEL_PARSE_HPP
 
 #include <Windows.h>
 #include <cstdint>
@@ -13,7 +13,7 @@
 
 using namespace DirectX;
 
-class GeometryGenerator
+class ModelParse
 {
 public:
 
@@ -30,14 +30,6 @@ public:
 		UINT IndexCount = 0;
 	};
 
-	struct MeshInfo
-	{
-		std::vector<Vertex> Vertices;
-		std::vector<uint32_t> Indices32;
-
-		std::vector<SubmeshInfo> Submeshes;
-	};
-
 	struct MaterialInfo
 	{
 		std::string Name;
@@ -46,7 +38,16 @@ public:
 		XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
 	};
 
-	MeshInfo LoadOBJ(const std::string& path, std::unordered_map<std::string, MaterialInfo*>& materialMap);
+	struct MeshInfo
+	{
+		std::vector<Vertex> Vertices;
+		std::vector<uint32_t> Indices32;
+
+		std::vector<SubmeshInfo> Submeshes;
+		std::unordered_map<std::string, MaterialInfo> Materials;
+	};
+
+	MeshInfo LoadOBJ(const std::string& path);
 };
 
-#endif // !GEOMETRY_GENERATOR_HPP
+#endif // !MODEL_PARSE_HPP

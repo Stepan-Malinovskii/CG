@@ -43,7 +43,8 @@ struct MeshGeometry
 
 	UINT VertexByteStride = 0;
 	UINT VertexBufferByteSize = 0;
-	DXGI_FORMAT IndexFormat = DXGI_FORMAT_R16_UINT;
+	DXGI_FORMAT IndexFormat = DXGI_FORMAT_R32_UINT;
+	D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	UINT IndexBufferByteSize = 0;
 
 	std::unordered_map<std::string, SubmeshGeometry> DrawArgs;
@@ -122,6 +123,25 @@ struct Texture
 	ComPtr<ID3D12Resource> UploadHeap = nullptr;
 
 	int SrvHeapIndex = -1;
+};
+
+struct Model
+{
+	MeshGeometry* Mesh;
+
+	struct Part
+	{
+		std::string SubmeshName;
+		std::string MaterialName;
+	};
+
+	std::vector<Part> Parts;
+};
+
+struct SceneObject
+{
+	Model* ModelData;
+	XMFLOAT4X4 World;
 };
 
 #endif // !MODEL_STRUCT_HPP

@@ -26,6 +26,7 @@
 #include "MathHelper.h"
 #include "ThrowIfFaild.h" 
 #include "ModelStruct.h"
+#include "ModelParse.h"
 
 using namespace Microsoft::WRL;
 using namespace DirectX;
@@ -34,23 +35,21 @@ constexpr int NUM_FRAME_RECOURCES = 3;
 
 struct RenderItem
 {
-	RenderItem() = default;
+    MeshGeometry* Geo;
+    Material* Mat;
 
-	XMFLOAT4X4 World = MathHelper::Identity4x4();
+    std::string SubmeshName;
+
+    int NumFramesDirty = NUM_FRAME_RECOURCES;
+
+    UINT IndexCount;
+    UINT StartIndexLocation;
+    int BaseVertexLocation;
+
+    UINT ObjCBIndex;
+
+    XMFLOAT4X4 World = MathHelper::Identity4x4();
     XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
-
-	int NumFramesDirty = NUM_FRAME_RECOURCES;
-
-	UINT ObjCBIndex = -1;
-
-	MeshGeometry* Geo = nullptr;
-    Material* Mat = nullptr;
-
-	D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-
-	UINT IndexCount = 0;
-	UINT StartIndexLocation = 0;
-	int BaseVertexLocation = 0;
 };
 
 class D3DFramework : public BaseD3DApp
@@ -82,17 +81,24 @@ private:
 
     void BuildRootSignature();
     void BuildDescriptorHeaps();
-
     void BuildShadersAndInputLayout();
-    void BuildModelGeometry();
+
+    void LoadModel(std::string path);
+    void CreateSceneObjects();
+    void BuildRenderItems();
+    void BuildFrameResources();
 
     void BuildPSOs();
 
-    void BuildFrameResources();
-    void BuildRenderItems();
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
+
+private:
+    void ParseMesh(const ModelParse::MeshInfo& meshData);
+    void LoadTextures(const ModelParse::MeshInfo& meshData);
+    void ParseMaterials(const ModelParse::MeshInfo& meshData);
+
 private:
 
     std::vector<std::unique_ptr<FrameResource>> _frameResources;
@@ -107,13 +113,17 @@ private:
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> _geometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> _materials;
     std::unordered_map<std::string, std::unique_ptr<Texture>> _textures;
+
+    std::unordered_map<std::string, std::unique_ptr<Model>> _models;
+    std::vector<std::unique_ptr<SceneObject>> _sceneObjects;
+
+    std::vector<std::unique_ptr<RenderItem>> _allRitems;
+    std::vector<RenderItem*> _opaqueRitems;
+
     std::unordered_map<std::string, ComPtr<ID3DBlob>> _shaders;
     std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> _psos;
 
     std::vector<D3D12_INPUT_ELEMENT_DESC> _inputLayout;
-
-    std::vector<std::unique_ptr<RenderItem>> _allRitems;
-    std::vector<RenderItem*> _opaqueRitems;
 
     PassConstants _mainPassCB;
 
@@ -121,9 +131,15 @@ private:
     XMFLOAT4X4 _view = MathHelper::Identity4x4();
     XMFLOAT4X4 _proj = MathHelper::Identity4x4();
 
-    float _theta = 1.5f * XM_PI;
-    float _phi = 0.2f * XM_PI;
-    float _radius = 15.0f;
+    float _yaw = 0.0f;
+    float _pitch = 0.0f;
+
+    XMFLOAT3 _forward = { 0.0f, 0.0f, 1.0f };
+    XMFLOAT3 _right = { 1.0f, 0.0f, 0.0f };
+    XMFLOAT3 _up = { 0.0f, 1.0f, 0.0f };
+
+    float _moveSpeed = 10.0f;
+    float _rotateSpeed = 0.15f;
 
     POINT _lastMousePos;
 };
