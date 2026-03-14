@@ -26,8 +26,7 @@ bool D3DFramework::Initialize()
 
 	_cbvSrvDescriptorSize = _d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-
-	LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/Model.obj");
+	LoadModel("C:/Users/HUAWEI/Desktop/CG/5/Models/Model.obj");
 	CreateSceneObjects();
 
 	BuildRenderItems();
@@ -202,7 +201,21 @@ void D3DFramework::UpdateCamera(const GameTimer& gt)
 }
 
 
-void D3DFramework::AnimateMaterials(const GameTimer& gt) {}
+void D3DFramework::AnimateMaterials(const GameTimer& gt)
+{
+	/*float t = gt.TotalTime();
+
+	for (auto& kv : _materials)
+	{
+		Material* mat = kv.second.get();
+
+		float pulse = 0.5f * sinf(2.0f * t) + 0.5f;
+		mat->MatTransform._11 = 0.8f + 0.2f * pulse;
+		mat->MatTransform._22 = mat->MatTransform._11;
+
+		mat->NumFramesDirty = NUM_FRAME_RECOURCES;
+	}*/
+}
 
 void D3DFramework::UpdateObjectCBs(const GameTimer& gt)
 {
@@ -275,12 +288,11 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 	_mainPassCB.DeltaTime = gt.DeltaTime();
 
 	_mainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+	_mainPassCB.Lights[0].Position = { 0.0f, 1.0f, 0.0f };
 	_mainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
-	_mainPassCB.Lights[0].Strength = { 0.6f, 0.6f, 0.6f };
-	_mainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
-	_mainPassCB.Lights[1].Strength = { 0.3f, 0.3f, 0.3f };
-	_mainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
-	_mainPassCB.Lights[2].Strength = { 0.15f, 0.15f, 0.15f };
+	_mainPassCB.Lights[0].Strength = { 1.6f, 1.6f, 1.6f };
+	//_mainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
+	//_mainPassCB.Lights[1].Strength = { 0.3f, 0.3f, 0.3f };
 
 	auto currPassCB = _currFrameResource->PassCB.get();
 	currPassCB->CopyData(0, _mainPassCB);
@@ -355,8 +367,9 @@ void D3DFramework::BuildShadersAndInputLayout()
 {
 	const D3D_SHADER_MACRO alphaTestDefines[] = { "ALPHA_TEST", "1", NULL, NULL };
 
-	_shaders["standardVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/Default.hlsl", nullptr, "VS", "vs_5_1");
-	_shaders["opaquePS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/Default.hlsl", nullptr, "PS", "ps_5_1");
+	_shaders["standardVS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/Default.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["opaquePS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/Default.hlsl", nullptr, "PS", "ps_5_1");
+	_shaders["animVS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/Anim.hlsl", nullptr, "VS", "vs_5_1");
 
 	_inputLayout =
 	{
@@ -417,6 +430,37 @@ void D3DFramework::BuildPSOs()
 	opaquePsoDesc.DSVFormat = _depthStencilFormat;
 
 	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&_psos["opaque"])));
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC animPsoDesc;
+
+	ZeroMemory(&animPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+	animPsoDesc.InputLayout = { _inputLayout.data(), (UINT)_inputLayout.size() };
+	animPsoDesc.pRootSignature = _rootSignature.Get();
+	animPsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(_shaders["animVS"]->GetBufferPointer()),
+		_shaders["animVS"]->GetBufferSize()
+	};
+	animPsoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(_shaders["opaquePS"]->GetBufferPointer()),
+		_shaders["opaquePS"]->GetBufferSize()
+	};
+
+	animPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	animPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	animPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	animPsoDesc.SampleMask = UINT_MAX;
+	animPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	animPsoDesc.NumRenderTargets = 1;
+	animPsoDesc.RTVFormats[0] = _backBufferFormat;
+	animPsoDesc.SampleDesc.Count = _4xMsaaState ? 4 : 1;
+	animPsoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
+	animPsoDesc.DSVFormat = _depthStencilFormat;
+
+	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&animPsoDesc, IID_PPV_ARGS(&_psos["anim"])));
+
+	//_cmdList->SetPipelineState(_psos["anim"].Get());
 }
 
 void D3DFramework::BuildFrameResources()
@@ -448,6 +492,7 @@ void D3DFramework::BuildRenderItems()
 			auto& sub = model->Mesh->DrawArgs[part.SubmeshName];
 
 			ri->Geo = model->Mesh;
+			ri->UsedPso = part.SubmeshName == "mesh_0_2" ? "anim" : "opaque";
 
 			if (!part.MaterialName.empty() && _materials.count(part.MaterialName)) { ri->Mat = _materials[part.MaterialName].get(); }
 			else if (!_materials.empty()) { ri->Mat = _materials.begin()->second.get(); }
@@ -476,9 +521,18 @@ void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std
 	auto objectCB = _currFrameResource->ObjectCB->Resource();
 	auto matCB = _currFrameResource->MaterialCB->Resource();
 
+	ID3D12PipelineState* currentPso = nullptr;
+
 	for (size_t i = 0; i < ritems.size(); ++i)
 	{
 		auto ri = ritems[i];
+
+		ID3D12PipelineState* targetPso = _psos[ri->UsedPso].Get();
+		if (currentPso != targetPso)
+		{
+			cmdList->SetPipelineState(targetPso);
+			currentPso = targetPso;
+		}
 
 		auto vertexBuffer = ri->Geo->VertexBufferView();
 		cmdList->IASetVertexBuffers(0, 1, &vertexBuffer);
@@ -633,7 +687,7 @@ void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 
 		auto tex = std::make_unique<Texture>();
 		tex->Name = texName;
-		tex->Filename = L"C:/Users/Stepan/Desktop/CG/5/Textures/" + std::wstring(texName.begin(), texName.end());
+		tex->Filename = L"C:/Users/HUAWEI/Desktop/CG/5/Textures/" + std::wstring(texName.begin(), texName.end());
 
 		ResourceUploadBatch resourceUpload(_d3dDevice.Get());
 		resourceUpload.Begin();

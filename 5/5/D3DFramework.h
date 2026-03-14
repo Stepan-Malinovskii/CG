@@ -40,6 +40,8 @@ struct RenderItem
 
     std::string SubmeshName;
 
+    std::string UsedPso;
+
     int NumFramesDirty = NUM_FRAME_RECOURCES;
 
     UINT IndexCount;
