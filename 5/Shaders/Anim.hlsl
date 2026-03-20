@@ -1,24 +1,6 @@
-//***************************************************************************************
-// Default.hlsl by Frank Luna (C) 2015 All Rights Reserved.
-//***************************************************************************************
-
-// Defaults for number of lights.
-#ifndef NUM_DIR_LIGHTS
-    #define NUM_DIR_LIGHTS 0
-#endif
-
-#ifndef NUM_POINT_LIGHTS
-    #define NUM_POINT_LIGHTS 1
-#endif
-
-#ifndef NUM_SPOT_LIGHTS
-    #define NUM_SPOT_LIGHTS 0
-#endif
-
 #include "LightingUtil.hlsl"
 
 Texture2D gDiffuseMap : register(t0);
-
 
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
@@ -27,14 +9,12 @@ SamplerState gsamLinearClamp : register(s3);
 SamplerState gsamAnisotropicWrap : register(s4);
 SamplerState gsamAnisotropicClamp : register(s5);
 
-// Constant data that varies per frame.
 cbuffer cbPerObject : register(b0)
 {
     float4x4 gWorld;
     float4x4 gTexTransform;
 };
 
-// Constant data that varies per material.
 cbuffer cbPass : register(b1)
 {
     float4x4 gView;
@@ -53,10 +33,6 @@ cbuffer cbPass : register(b1)
     float gDeltaTime;
     float4 gAmbientLight;
 
-    // Indices [0, NUM_DIR_LIGHTS) are directional lights;
-    // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
-    // indices [NUM_DIR_LIGHTS+NUM_POINT_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHT+NUM_SPOT_LIGHTS)
-    // are spot lights for a maximum of MaxLights per object.
     Light gLights[MaxLights];
 };
 
@@ -89,12 +65,12 @@ VertexOut VS(VertexIn vin)
     
     float t = sin(gTotalTime * 2.0f) * 0.5f + 0.5f;
     
-    float3 animatedPos = lerp(vin.PosL, float3(-1.0f, 0.1f, -1.0f), t);
+    float3 animatedPos = lerp(vin.PosL, float3(-1.975f, 0.25f, -1.85f), t);
     
     float4 posW = mul(float4(animatedPos, 1.0f), gWorld);
     vout.PosW = posW.xyz;
 
-    vout.NormalW = mul(vin.NormalL, (float3x3) gWorld);
+    vout.NormalW = mul(vin.NormalL, (float3x3)gWorld);
     vout.NormalW = normalize(vout.NormalW);
     
     vout.PosH = mul(posW, gViewProj);

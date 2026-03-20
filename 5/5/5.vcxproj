@@ -133,6 +133,7 @@
     <ClCompile Include="D3DUtil.cpp" />
     <ClCompile Include="FrameResource.cpp" />
     <ClCompile Include="GameTimer.cpp" />
+    <ClCompile Include="GBuffer.cpp" />
     <ClCompile Include="ModelParse.cpp" />
     <ClCompile Include="LunaDDSTextureLoader.cpp" />
     <ClCompile Include="MathHelper.cpp" />
@@ -147,6 +148,7 @@
     <ClInclude Include="D3DUtil.h" />
     <ClInclude Include="FrameResource.h" />
     <ClInclude Include="GameTimer.h" />
+    <ClInclude Include="GBuffer.h" />
     <ClInclude Include="ModelParse.h" />
     <ClInclude Include="LunaDDSTextureLoader.h" />
     <ClInclude Include="MathHelper.h" />

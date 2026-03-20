@@ -14,7 +14,6 @@
 
 Texture2D gDiffuseMap : register(t0);
 
-
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
 SamplerState gsamLinearWrap : register(s2);
@@ -72,41 +71,37 @@ struct VertexOut
     float2 TexC : TEXCOORD;
 };
 
+struct GBufferOutput
+{
+    float4 Albedo : SV_Target0;
+    float4 Normal : SV_Target1;
+    float Depth : SV_Target2;
+};
+
 VertexOut VS(VertexIn vin)
 {
-    VertexOut vout = (VertexOut) 0.0f;
-	
+    VertexOut vout;
+    
     float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
     vout.PosW = posW.xyz;
-
-    vout.NormalW = mul(vin.NormalL, (float3x3) gWorld);
+    
+    vout.NormalW = normalize(mul(vin.NormalL, (float3x3) gWorld));
 
     vout.PosH = mul(posW, gViewProj);
-	
+    
     float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
     vout.TexC = mul(texC, gMatTransform).xy;
-	
+    
     return vout;
 }
 
-float4 PS(VertexOut pin) : SV_Target
+GBufferOutput GPS(VertexOut pin)
 {
-    float4 diffuseAlbedo = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC) * gDiffuseAlbedo;
-	
-    pin.NormalW = normalize(pin.NormalW);
-
-    float3 toEyeW = normalize(gEyePosW - pin.PosW);
-
-    float4 ambient = gAmbientLight * diffuseAlbedo;
-
-    const float shininess = 1.0f - gRoughness;
-    Material mat = { diffuseAlbedo, gFresnelR0, shininess };
-    float3 shadowFactor = 1.0f;
-    float4 directLight = ComputeLighting(gLights, mat, pin.PosW, pin.NormalW, toEyeW, shadowFactor);
-
-    float4 litColor = ambient + directLight;
-
-    litColor.a = diffuseAlbedo.a;
-
-    return litColor;
+    GBufferOutput res;
+    
+    res.Albedo = gDiffuseAlbedo * gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC);
+    res.Normal = float4(normalize(pin.NormalW), 1.0f);
+    res.Depth = pin.PosH.z / pin.PosH.w;
+    
+    return res;
 }

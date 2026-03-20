@@ -1,4 +1,4 @@
-#define NOMINMAX
+﻿#define NOMINMAX
 
 #include "D3DFramework.h"
 
@@ -21,14 +21,13 @@ D3DFramework::~D3DFramework() { if (_d3dDevice != nullptr) { FlushCommandQueue()
 bool D3DFramework::Initialize()
 {
 	if (!BaseD3DApp::Initialize()) { return false; }
-
 	ThrowIfFailed(_cmdList->Reset(_directCmdListAlloc.Get(), nullptr));
-
 	_cbvSrvDescriptorSize = _d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-	LoadModel("C:/Users/HUAWEI/Desktop/CG/5/Models/Model.obj");
-	CreateSceneObjects();
+	_gBuffer = std::make_unique<GBuffer>(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT);
 
+	LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/Model.obj");
+	CreateSceneObjects();
 	BuildRenderItems();
 	BuildFrameResources();
 
@@ -36,14 +35,14 @@ bool D3DFramework::Initialize()
 	BuildDescriptorHeaps();
 	BuildShadersAndInputLayout();
 
-	BuildPSOs();
+	BuildPSO("opaque", "standardVS", "opaquePS");
+	BuildPSO("anim", "animVS", "opaquePS");
+	BuildGBufferPSO();
 
 	ThrowIfFailed(_cmdList->Close());
 	ID3D12CommandList* cmdsLists[] = { _cmdList.Get() };
 	_cmdQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
-
 	FlushCommandQueue();
-
 	return true;
 }
 
@@ -53,6 +52,8 @@ void D3DFramework::OnResize()
 
 	XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 	XMStoreFloat4x4(&_proj, P);
+
+	if (_gBuffer.get() != nullptr) { _gBuffer->OnResize(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT); }
 }
 
 void D3DFramework::Update(const GameTimer& gt)
@@ -82,28 +83,48 @@ void D3DFramework::Draw(const GameTimer& gt)
 	auto cmdListAlloc = _currFrameResource->CmdListAlloc;
 
 	ThrowIfFailed(cmdListAlloc->Reset());
-	ThrowIfFailed(_cmdList->Reset(cmdListAlloc.Get(), _psos["opaque"].Get()));
+	ThrowIfFailed(_cmdList->Reset(cmdListAlloc.Get(), nullptr));
 
 	_cmdList->RSSetViewports(1, &_screenViewport);
 	_cmdList->RSSetScissorRects(1, &_scissorRect);
 
-	auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-	_cmdList->ResourceBarrier(1, &barrier1);
+	_gBuffer->TransitToOpaqueRenderingState(_cmdList.Get());
+
+	_gBuffer->ClearView(_cmdList.Get());
+
+	std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 2> rtvs =
+	{
+		_gBuffer->Textures[(UINT)GBufferIndex::Albedo].RTV,
+		_gBuffer->Textures[(UINT)GBufferIndex::Normal].RTV
+	};
+
+	auto dsv = _gBuffer->Textures[(UINT)GBufferIndex::Depth].DSV;
+
+	_cmdList->OMSetRenderTargets((UINT)rtvs.size(), rtvs.data(), true, &dsv);
+
+	ID3D12DescriptorHeap* heaps[] = { _gBuffer->SrvHeap.Get() };
+	_cmdList->SetDescriptorHeaps(1, heaps);
+
+	_cmdList->SetGraphicsRootSignature(_rootSignature.Get());
+
+	auto passCB = _currFrameResource->PassCB->Resource();
+	_cmdList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+	_cmdList->SetPipelineState(_psos["gbuffer"].Get());
+
+	DrawRenderItems(_cmdList.Get(), _opaqueRitems);
+
+	auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+	_cmdList->ResourceBarrier(1, &barrier);
 
 	_cmdList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightSteelBlue, 0, nullptr);
 	_cmdList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
 	auto backBuffer = CurrentBackBufferView();
 	auto depthBuffer = DepthStencilView();
+
 	_cmdList->OMSetRenderTargets(1, &backBuffer, true, &depthBuffer);
-
-	ID3D12DescriptorHeap* descriptorHeaps[] = { _srvDescriptorHeap.Get() };
-	_cmdList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-
-	_cmdList->SetGraphicsRootSignature(_rootSignature.Get());
-
-	auto passCB = _currFrameResource->PassCB->Resource();
-	_cmdList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
 	DrawRenderItems(_cmdList.Get(), _opaqueRitems);
 
@@ -119,7 +140,6 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_currBackBuffer = (_currBackBuffer + 1) % SWAP_CHAIN_BUFFER_COUNT;
 
 	_currFrameResource->Fence = ++_currFence;
-
 	_cmdQueue->Signal(_fence.Get(), _currFence);
 }
 
@@ -200,10 +220,9 @@ void D3DFramework::UpdateCamera(const GameTimer& gt)
 	XMStoreFloat4x4(&_view, view);
 }
 
-
 void D3DFramework::AnimateMaterials(const GameTimer& gt)
 {
-	/*float t = gt.TotalTime();
+	float t = gt.TotalTime();
 
 	for (auto& kv : _materials)
 	{
@@ -214,7 +233,7 @@ void D3DFramework::AnimateMaterials(const GameTimer& gt)
 		mat->MatTransform._22 = mat->MatTransform._11;
 
 		mat->NumFramesDirty = NUM_FRAME_RECOURCES;
-	}*/
+	}
 }
 
 void D3DFramework::UpdateObjectCBs(const GameTimer& gt)
@@ -290,9 +309,7 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 	_mainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
 	_mainPassCB.Lights[0].Position = { 0.0f, 1.0f, 0.0f };
 	_mainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
-	_mainPassCB.Lights[0].Strength = { 1.6f, 1.6f, 1.6f };
-	//_mainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
-	//_mainPassCB.Lights[1].Strength = { 0.3f, 0.3f, 0.3f };
+	_mainPassCB.Lights[0].Strength = { 1.0f, 0.0f, 0.0f };
 
 	auto currPassCB = _currFrameResource->PassCB.get();
 	currPassCB->CopyData(0, _mainPassCB);
@@ -363,13 +380,55 @@ void D3DFramework::BuildDescriptorHeaps()
 	}
 }
 
+void D3DFramework::BuildGBufferPSO()
+{
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+
+	psoDesc.InputLayout = { _inputLayout.data(), (UINT)_inputLayout.size() };
+	psoDesc.pRootSignature = _rootSignature.Get();
+
+	psoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(_shaders["gbufferVS"]->GetBufferPointer()),
+		_shaders["gbufferVS"]->GetBufferSize()
+	};
+
+	psoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(_shaders["gbufferPS"]->GetBufferPointer()),
+		_shaders["gbufferPS"]->GetBufferSize()
+	};
+
+	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+
+	psoDesc.SampleMask = UINT_MAX;
+	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+
+	psoDesc.NumRenderTargets = 3;
+	psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+	psoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+	psoDesc.RTVFormats[2] = DXGI_FORMAT_R32_FLOAT;
+
+	psoDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+
+	psoDesc.SampleDesc.Count = 1;
+
+	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["gbuffer"])));
+}
+
 void D3DFramework::BuildShadersAndInputLayout()
 {
 	const D3D_SHADER_MACRO alphaTestDefines[] = { "ALPHA_TEST", "1", NULL, NULL };
 
-	_shaders["standardVS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/Default.hlsl", nullptr, "VS", "vs_5_1");
-	_shaders["opaquePS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/Default.hlsl", nullptr, "PS", "ps_5_1");
-	_shaders["animVS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/Anim.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["standardVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/Default.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["opaquePS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/Default.hlsl", nullptr, "PS", "ps_5_1");
+
+	_shaders["animVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/Anim.hlsl", nullptr, "VS", "vs_5_1");
+
+	_shaders["gbufferVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["gbufferPS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "PS", "ps_5_1");
 
 	_inputLayout =
 	{
@@ -400,7 +459,7 @@ void D3DFramework::CreateSceneObjects()
 	_sceneObjects.push_back(std::move(sceneObj));
 }
 
-void D3DFramework::BuildPSOs()
+void D3DFramework::BuildPSO(std::string psoName, std::string vsName, std::string psName)
 {
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
 
@@ -409,13 +468,13 @@ void D3DFramework::BuildPSOs()
 	opaquePsoDesc.pRootSignature = _rootSignature.Get();
 	opaquePsoDesc.VS =
 	{
-		reinterpret_cast<BYTE*>(_shaders["standardVS"]->GetBufferPointer()),
-		_shaders["standardVS"]->GetBufferSize()
+		reinterpret_cast<BYTE*>(_shaders[vsName]->GetBufferPointer()),
+		_shaders[vsName]->GetBufferSize()
 	};
 	opaquePsoDesc.PS =
 	{
-		reinterpret_cast<BYTE*>(_shaders["opaquePS"]->GetBufferPointer()),
-		_shaders["opaquePS"]->GetBufferSize()
+		reinterpret_cast<BYTE*>(_shaders[psName]->GetBufferPointer()),
+		_shaders[psName]->GetBufferSize()
 	};
 
 	opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
@@ -429,38 +488,7 @@ void D3DFramework::BuildPSOs()
 	opaquePsoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
 	opaquePsoDesc.DSVFormat = _depthStencilFormat;
 
-	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&_psos["opaque"])));
-
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC animPsoDesc;
-
-	ZeroMemory(&animPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-	animPsoDesc.InputLayout = { _inputLayout.data(), (UINT)_inputLayout.size() };
-	animPsoDesc.pRootSignature = _rootSignature.Get();
-	animPsoDesc.VS =
-	{
-		reinterpret_cast<BYTE*>(_shaders["animVS"]->GetBufferPointer()),
-		_shaders["animVS"]->GetBufferSize()
-	};
-	animPsoDesc.PS =
-	{
-		reinterpret_cast<BYTE*>(_shaders["opaquePS"]->GetBufferPointer()),
-		_shaders["opaquePS"]->GetBufferSize()
-	};
-
-	animPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	animPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-	animPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-	animPsoDesc.SampleMask = UINT_MAX;
-	animPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	animPsoDesc.NumRenderTargets = 1;
-	animPsoDesc.RTVFormats[0] = _backBufferFormat;
-	animPsoDesc.SampleDesc.Count = _4xMsaaState ? 4 : 1;
-	animPsoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
-	animPsoDesc.DSVFormat = _depthStencilFormat;
-
-	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&animPsoDesc, IID_PPV_ARGS(&_psos["anim"])));
-
-	//_cmdList->SetPipelineState(_psos["anim"].Get());
+	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&_psos[psoName])));
 }
 
 void D3DFramework::BuildFrameResources()
@@ -527,12 +555,12 @@ void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std
 	{
 		auto ri = ritems[i];
 
-		ID3D12PipelineState* targetPso = _psos[ri->UsedPso].Get();
-		if (currentPso != targetPso)
-		{
-			cmdList->SetPipelineState(targetPso);
-			currentPso = targetPso;
-		}
+		//ID3D12PipelineState* targetPso = _psos[ri->UsedPso].Get();
+		//if (currentPso != targetPso)
+		//{
+		//	cmdList->SetPipelineState(targetPso);
+		//	currentPso = targetPso;
+		//}
 
 		auto vertexBuffer = ri->Geo->VertexBufferView();
 		cmdList->IASetVertexBuffers(0, 1, &vertexBuffer);
@@ -687,7 +715,7 @@ void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 
 		auto tex = std::make_unique<Texture>();
 		tex->Name = texName;
-		tex->Filename = L"C:/Users/HUAWEI/Desktop/CG/5/Textures/" + std::wstring(texName.begin(), texName.end());
+		tex->Filename = L"C:/Users/Stepan/Desktop/CG/5/Textures/" + std::wstring(texName.begin(), texName.end());
 
 		ResourceUploadBatch resourceUpload(_d3dDevice.Get());
 		resourceUpload.Begin();

@@ -27,6 +27,7 @@
 #include "ThrowIfFaild.h" 
 #include "ModelStruct.h"
 #include "ModelParse.h"
+#include "GBuffer.h"
 
 using namespace Microsoft::WRL;
 using namespace DirectX;
@@ -83,6 +84,7 @@ private:
 
     void BuildRootSignature();
     void BuildDescriptorHeaps();
+    void BuildGBufferPSO();
     void BuildShadersAndInputLayout();
 
     void LoadModel(std::string path);
@@ -90,7 +92,7 @@ private:
     void BuildRenderItems();
     void BuildFrameResources();
 
-    void BuildPSOs();
+    void BuildPSO(std::string psoName, std::string vsName, std::string psName);
 
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
 
@@ -111,6 +113,7 @@ private:
 
     ComPtr<ID3D12RootSignature> _rootSignature = nullptr;
     ComPtr<ID3D12DescriptorHeap> _srvDescriptorHeap = nullptr;
+    ComPtr<ID3D12DescriptorHeap> _depthSrvHeap = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> _geometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> _materials;
@@ -128,6 +131,8 @@ private:
     std::vector<D3D12_INPUT_ELEMENT_DESC> _inputLayout;
 
     PassConstants _mainPassCB;
+
+    std::unique_ptr<GBuffer> _gBuffer;
 
     XMFLOAT3 _eyePos = { 0.0f, 0.0f, 0.0f };
     XMFLOAT4X4 _view = MathHelper::Identity4x4();

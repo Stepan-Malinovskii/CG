@@ -1,0 +1,73 @@
+#ifndef G_BUFFER_HPP
+#define G_BUFFER_HPP
+
+#include <string>
+#include <vector>
+
+#include <Windows.h>
+#include <wrl/client.h>
+
+#include <d3d12.h>
+#include <dxgiformat.h>
+#include <DirectXMath.h>
+#include <DirectXColors.h>
+
+using namespace Microsoft::WRL;
+using namespace DirectX;
+
+enum class GBufferIndex : UINT
+{
+    Albedo = 0,
+    Normal = 1,
+    Depth = 2,
+    Count = 3
+};
+
+struct GBufferTexture
+{
+    ComPtr<ID3D12Resource> Resource = nullptr;
+
+    D3D12_CPU_DESCRIPTOR_HANDLE RTV = {};
+    D3D12_CPU_DESCRIPTOR_HANDLE DSV = {};
+    D3D12_CPU_DESCRIPTOR_HANDLE SRV = {};
+
+    D3D12_RESOURCE_STATES State = D3D12_RESOURCE_STATE_COMMON;
+};
+
+class GBuffer
+{
+private:
+    static constexpr DXGI_FORMAT INFO_FORMATS[(int)GBufferIndex::Count] =
+    {
+        DXGI_FORMAT_R8G8B8A8_UNORM,
+        DXGI_FORMAT_R32G32B32A32_FLOAT,
+        DXGI_FORMAT_R24G8_TYPELESS
+    };
+
+public:
+    GBuffer(ID3D12Device* device, int width, int height);
+
+	void TransitToOpaqueRenderingState(ID3D12GraphicsCommandList* cmdList); 
+	void TransitToLightRenderingState(ID3D12GraphicsCommandList* cmdList);
+
+    void ClearView(ID3D12GraphicsCommandList* cmdList);
+
+    void OnResize(ID3D12Device* device, int width, int height);
+
+    std::vector<GBufferTexture> Textures;
+    
+    ComPtr<ID3D12DescriptorHeap> RtvHeap;
+    ComPtr<ID3D12DescriptorHeap> DsvHeap;
+    ComPtr<ID3D12DescriptorHeap> SrvHeap;
+private:
+    void CreateResources(ID3D12Device* device);
+    void CreateViews(ID3D12Device* device);
+
+    void Transition(ID3D12GraphicsCommandList* cmdList, GBufferIndex index, D3D12_RESOURCE_STATES newState);
+
+private:
+    int _width = 0;
+    int _height = 0;
+};
+
+#endif // !G_BUFFER_HPP
