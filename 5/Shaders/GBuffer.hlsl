@@ -75,7 +75,6 @@ struct GBufferOutput
 {
     float4 Albedo : SV_Target0;
     float4 Normal : SV_Target1;
-    float Depth : SV_Target2;
 };
 
 VertexOut VS(VertexIn vin)
@@ -101,7 +100,6 @@ GBufferOutput PS(VertexOut pin)
     
     res.Albedo = gDiffuseAlbedo * gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC);
     res.Normal = float4(normalize(pin.NormalW), 1.0f);
-    res.Depth = -pin.PosH.z;// / pin.PosH.w;
     
     return res;
 }

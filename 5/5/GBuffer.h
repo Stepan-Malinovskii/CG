@@ -29,8 +29,7 @@ struct GBufferTexture
 
     D3D12_CPU_DESCRIPTOR_HANDLE RTV = {};
     D3D12_CPU_DESCRIPTOR_HANDLE SRV = {};
-
-    D3D12_RESOURCE_STATES State = D3D12_RESOURCE_STATE_COMMON;
+    D3D12_CPU_DESCRIPTOR_HANDLE DSV = {};
 };
 
 class GBuffer
@@ -40,7 +39,7 @@ private:
     {
         DXGI_FORMAT_R8G8B8A8_UNORM,
         DXGI_FORMAT_R32G32B32A32_FLOAT,
-        DXGI_FORMAT_R32_FLOAT
+        DXGI_FORMAT_R24_UNORM_X8_TYPELESS
     };
 
 public:
@@ -55,15 +54,13 @@ public:
 
     std::vector<GBufferTexture> Textures;
     
-    ComPtr<ID3D12DescriptorHeap> RtvHeap;
-    ComPtr<ID3D12DescriptorHeap> SrvHeap;
+    ComPtr<ID3D12DescriptorHeap> RTVHeap;
+    ComPtr<ID3D12DescriptorHeap> SRVHeap;
+    ComPtr<ID3D12DescriptorHeap> DSVHeap;
 private:
-    void CreateResources(ID3D12Device* device);
-    void CreateViews(ID3D12Device* device);
-
-private:
-    int _width = 0;
-    int _height = 0;
+    void CreateTextures(ID3D12Device* device, int width, int height);
+    void CreateSRV(ID3D12Device* device);
+    void CreateRTVandDSV(ID3D12Device* device);
 };
 
 #endif // !G_BUFFER_HPP

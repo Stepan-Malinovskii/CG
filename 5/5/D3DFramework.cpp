@@ -36,8 +36,6 @@ bool D3DFramework::Initialize()
 	BuildDescriptorHeaps();
 	BuildShadersAndInputLayout();
 
-	//BuildPSO("opaque", "standardVS", "opaquePS");
-	//BuildPSO("anim", "animVS", "opaquePS");
 	BuildGBufferPSO();
 	BuildLightPassPSO();
 
@@ -90,35 +88,30 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_cmdList->RSSetScissorRects(1, &_scissorRect);
 
 	// =========================
-	// 1. GEOMETRY PASS (GBuffer)
-	// =========================
-
+// 1. GEOMETRY PASS (GBuffer)
+// =========================
 	_gBuffer->TransitToOpaqueRenderingState(_cmdList.Get());
 	_gBuffer->ClearView(_cmdList.Get());
 
-	auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-	_cmdList->ResourceBarrier(1, &barrier1);
+	// GBuffer рендерит ТОЛЬКО в свои текстуры, бэк-буфер не трогаем!
 
-	_cmdList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
-
-	std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 3> rtvs =
+	std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 2> rtvs = 
 	{
 		_gBuffer->Textures[(UINT)GBufferIndex::Albedo].RTV,
-		_gBuffer->Textures[(UINT)GBufferIndex::Normal].RTV,
-		_gBuffer->Textures[(UINT)GBufferIndex::Depth].RTV
+		_gBuffer->Textures[(UINT)GBufferIndex::Normal].RTV
 	};
 
-	auto dsv = DepthStencilView();
-	_cmdList->OMSetRenderTargets((UINT)rtvs.size(), rtvs.data(), true, &dsv);
+	auto dsv = _gBuffer->Textures[(UINT)GBufferIndex::Depth].DSV;
+	_cmdList->OMSetRenderTargets((UINT)rtvs.size(), rtvs.data(), TRUE, &dsv);
 
 	_cmdList->SetPipelineState(_psos["gbuffer"].Get());
 	_cmdList->SetGraphicsRootSignature(_rootSignatureGBuffer.Get());
-	
+
 	ID3D12DescriptorHeap* dvs_heaps[] = { _srvDescriptorHeap.Get() };
 	_cmdList->SetDescriptorHeaps(1, dvs_heaps);
 
 	auto passCB = _currFrameResource->PassCB->Resource();
-	_cmdList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+	_cmdList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress()); // cbPass -> slot 2
 
 	DrawRenderItems(_cmdList.Get(), _opaqueRitems);
 
@@ -128,34 +121,46 @@ void D3DFramework::Draw(const GameTimer& gt)
 	// 2. LIGHTING PASS
 	// =========================
 
-	auto backBuffer = CurrentBackBufferView();
-	_cmdList->OMSetRenderTargets(1, &backBuffer, false, nullptr);
+	// ✅ Барьер для бэк-буфера ПЕРЕД использованием
+	auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+		CurrentBackBuffer(),
+		D3D12_RESOURCE_STATE_PRESENT,
+		D3D12_RESOURCE_STATE_RENDER_TARGET);
+	_cmdList->ResourceBarrier(1, &barrier);
 
+	auto backBuffer = CurrentBackBufferView();
+	_cmdList->OMSetRenderTargets(1, &backBuffer, FALSE, nullptr); // DSV не нужен
 	_cmdList->ClearRenderTargetView(backBuffer, Colors::Black, 0, nullptr);
 
 	_cmdList->SetPipelineState(_psos["lightPass"].Get());
 	_cmdList->SetGraphicsRootSignature(_rootSignatureLightPass.Get());
 
-	// теперь нужен GBuffer SRV
-	ID3D12DescriptorHeap* heaps[] = { _gBuffer->SrvHeap.Get() };
+	ID3D12DescriptorHeap* heaps[] = { _gBuffer->SRVHeap.Get() };
 	_cmdList->SetDescriptorHeaps(_countof(heaps), heaps);
 
-	_cmdList->SetGraphicsRootDescriptorTable(0, _gBuffer->SrvHeap->GetGPUDescriptorHandleForHeapStart());
-	_cmdList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+	// ✅ GBuffer текстуры -> slot 0
+	_cmdList->SetGraphicsRootDescriptorTable(0, _gBuffer->SRVHeap->GetGPUDescriptorHandleForHeapStart());
 
-	// fullscreen triangle
+	// ✅ cbPass -> b1 -> slot 2 (НЕ slot 1!)
+	_cmdList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+	// ✅ Если используешь cbMaterial в освещении:
+	// _cmdList->SetGraphicsRootConstantBufferView(3, matCB->GetGPUVirtualAddress());
+
+	// Fullscreen triangle
 	_cmdList->IASetVertexBuffers(0, 0, nullptr);
 	_cmdList->IASetIndexBuffer(nullptr);
 	_cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	_cmdList->DrawInstanced(3, 1, 0, 0);
 
-
-	auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-	_cmdList->ResourceBarrier(1, &barrier2);
-
 	// =========================
 	// 3. PRESENT
 	// =========================
+	auto barrierPresent = CD3DX12_RESOURCE_BARRIER::Transition(
+		CurrentBackBuffer(),
+		D3D12_RESOURCE_STATE_RENDER_TARGET,
+		D3D12_RESOURCE_STATE_PRESENT);
+	_cmdList->ResourceBarrier(1, &barrierPresent);
 
 	ThrowIfFailed(_cmdList->Close());
 	ID3D12CommandList* cmdsLists[] = { _cmdList.Get() };
@@ -379,7 +384,6 @@ void D3DFramework::BuildRootSignatureLightPass()
 	CD3DX12_DESCRIPTOR_RANGE texTable;
 	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0);
 
-	// Root parameters: 0=SRV table, 1=cbPass
 	CD3DX12_ROOT_PARAMETER slotRootParameter[4];
 	slotRootParameter[0].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
 	slotRootParameter[1].InitAsConstantBufferView(0);
@@ -393,7 +397,7 @@ void D3DFramework::BuildRootSignatureLightPass()
 		slotRootParameter,
 		(UINT)staticSamplers.size(),
 		staticSamplers.data(),
-		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT
+		D3D12_ROOT_SIGNATURE_FLAG_NONE
 	);
 
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
@@ -411,7 +415,7 @@ void D3DFramework::BuildRootSignatureLightPass()
 	ThrowIfFailed(_d3dDevice->CreateRootSignature(0,
 		serializedRootSig->GetBufferPointer(),
 		serializedRootSig->GetBufferSize(),
-		IID_PPV_ARGS(&_rootSignatureLightPass) // отдельный объект
+		IID_PPV_ARGS(&_rootSignatureLightPass)
 	));
 }
 
@@ -457,32 +461,30 @@ void D3DFramework::BuildGBufferPSO()
 	psoDesc.InputLayout = { _inputLayout.data(), (UINT)_inputLayout.size() };
 	psoDesc.pRootSignature = _rootSignatureGBuffer.Get();
 
-	psoDesc.VS =
-	{
+	psoDesc.VS = 
+	{ 
 		reinterpret_cast<BYTE*>(_shaders["gbufferVS"]->GetBufferPointer()),
-		_shaders["gbufferVS"]->GetBufferSize()
+		_shaders["gbufferVS"]->GetBufferSize() 
 	};
-
-	psoDesc.PS =
-	{
+	psoDesc.PS = 
+	{ 
 		reinterpret_cast<BYTE*>(_shaders["gbufferPS"]->GetBufferPointer()),
-		_shaders["gbufferPS"]->GetBufferSize()
+		_shaders["gbufferPS"]->GetBufferSize() 
 	};
 
 	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
 	psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 	psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 
-	psoDesc.SampleMask = UINT_MAX;
 	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 
+	psoDesc.SampleMask = UINT_MAX;
 	psoDesc.SampleDesc.Count = _4xMsaaState ? 4 : 1;
 	psoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
 
-	psoDesc.NumRenderTargets = 3;
+	psoDesc.NumRenderTargets = 2;
 	psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
 	psoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;
-	psoDesc.RTVFormats[2] = DXGI_FORMAT_R32_FLOAT;
 
 	psoDesc.DSVFormat = _depthStencilFormat;
 
@@ -491,10 +493,26 @@ void D3DFramework::BuildGBufferPSO()
 
 void D3DFramework::BuildLightPassPSO()
 {
+	CD3DX12_BLEND_DESC blendDesc(D3D12_DEFAULT);
+	blendDesc.RenderTarget[0].BlendEnable = TRUE;
+	blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+	blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
+	blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+	blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+	blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+
+	CD3DX12_DEPTH_STENCIL_DESC dsDesc(D3D12_DEFAULT);
+	dsDesc.DepthEnable = TRUE;
+	dsDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	dsDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+	ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
 
 	psoDesc.InputLayout = { nullptr, 0 };
 	psoDesc.pRootSignature = _rootSignatureLightPass.Get();
+	psoDesc.BlendState = blendDesc;
+	psoDesc.DepthStencilState = dsDesc;
 
 	psoDesc.VS =
 	{
