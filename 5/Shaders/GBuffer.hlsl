@@ -95,13 +95,13 @@ VertexOut VS(VertexIn vin)
     return vout;
 }
 
-GBufferOutput GPS(VertexOut pin)
+GBufferOutput PS(VertexOut pin)
 {
     GBufferOutput res;
     
     res.Albedo = gDiffuseAlbedo * gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC);
     res.Normal = float4(normalize(pin.NormalW), 1.0f);
-    res.Depth = pin.PosH.z / pin.PosH.w;
+    res.Depth = -pin.PosH.z;// / pin.PosH.w;
     
     return res;
 }

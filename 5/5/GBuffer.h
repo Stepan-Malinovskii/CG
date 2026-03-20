@@ -28,7 +28,6 @@ struct GBufferTexture
     ComPtr<ID3D12Resource> Resource = nullptr;
 
     D3D12_CPU_DESCRIPTOR_HANDLE RTV = {};
-    D3D12_CPU_DESCRIPTOR_HANDLE DSV = {};
     D3D12_CPU_DESCRIPTOR_HANDLE SRV = {};
 
     D3D12_RESOURCE_STATES State = D3D12_RESOURCE_STATE_COMMON;
@@ -41,7 +40,7 @@ private:
     {
         DXGI_FORMAT_R8G8B8A8_UNORM,
         DXGI_FORMAT_R32G32B32A32_FLOAT,
-        DXGI_FORMAT_R24G8_TYPELESS
+        DXGI_FORMAT_R32_FLOAT
     };
 
 public:
@@ -57,13 +56,10 @@ public:
     std::vector<GBufferTexture> Textures;
     
     ComPtr<ID3D12DescriptorHeap> RtvHeap;
-    ComPtr<ID3D12DescriptorHeap> DsvHeap;
     ComPtr<ID3D12DescriptorHeap> SrvHeap;
 private:
     void CreateResources(ID3D12Device* device);
     void CreateViews(ID3D12Device* device);
-
-    void Transition(ID3D12GraphicsCommandList* cmdList, GBufferIndex index, D3D12_RESOURCE_STATES newState);
 
 private:
     int _width = 0;

@@ -82,9 +82,14 @@ private:
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
 
-    void BuildRootSignature();
+    void BuildRootSignatureGBuffer();
+    void BuildRootSignatureLightPass();
+
     void BuildDescriptorHeaps();
+
     void BuildGBufferPSO();
+    void BuildLightPassPSO();
+
     void BuildShadersAndInputLayout();
 
     void LoadModel(std::string path);
@@ -111,7 +116,8 @@ private:
 
     UINT _cbvSrvDescriptorSize = 0;
 
-    ComPtr<ID3D12RootSignature> _rootSignature = nullptr;
+    ComPtr<ID3D12RootSignature> _rootSignatureGBuffer = nullptr;
+    ComPtr<ID3D12RootSignature> _rootSignatureLightPass = nullptr;
     ComPtr<ID3D12DescriptorHeap> _srvDescriptorHeap = nullptr;
     ComPtr<ID3D12DescriptorHeap> _depthSrvHeap = nullptr;
 

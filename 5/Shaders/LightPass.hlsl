@@ -16,7 +16,12 @@ Texture2D gAlbedo : register(t0);
 Texture2D gNormal : register(t1);
 Texture2D gDepth : register(t2);
 
+SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
+SamplerState gsamLinearWrap : register(s2);
+SamplerState gsamLinearClamp : register(s3);
+SamplerState gsamAnisotropicWrap : register(s4);
+SamplerState gsamAnisotropicClamp : register(s5);
 
 cbuffer cbPerObject : register(b0)
 {
@@ -59,47 +64,34 @@ struct VSOut
     float2 TexC : TEXCOORD;
 };
 
-float3 ReconstructPosition(VSOut pin)
+float3 ReconstructPosition(float2 texCoord, float depth)
 {
-    float2 uv = pin.TexC;
-    float depth = gDepth.Sample(gsamPointClamp, uv).r;
+    float x = texCoord.x * 2.0f - 1.0f;
+    float y = (1.0f - texCoord.y) * 2.0f - 1.0f;
     
-    float4 clip = float4(uv * 2.0f - 1.0f, depth, 1.0f);
-
-    float4 view = mul(clip, gInvProj);
-    view /= view.w;
-
-    float4 world = mul(view, gInvView);
-    return world.xyz;
+    float4 ndcPos = float4(x, y, depth, 1.0f);
+    float4 worldPos = mul(ndcPos, gInvViewProj);
+    
+    return worldPos.xyz / worldPos.w;
 }
 
-VSOut VS(uint id : SV_VertexID)
+VSOut VS(uint vid : SV_VertexID)
 {
-    VSOut v;
+    VSOut vout;
+    
+    vout.TexC = float2((vid << 1) & 2, vid & 2);
+    vout.PosH = float4(vout.TexC * float2(2.0f, -2.0f) + float2(-1.0f, 1.0f), 0.0f, 1.0f);
 
-    float2 pos[3] =
-    {
-        float2(-1.0, -1.0),
-        float2(-1.0, 3.0),
-        float2(3.0, -1.0)
-    };
-
-    float2 uv[3] =
-    {
-        float2(0.0, 1.0),
-        float2(0.0, -1.0),
-        float2(2.0, 1.0)
-    };
-
-    v.PosH = float4(pos[id], 0.0, 1.0);
-    v.TexC = uv[id];
-
-    return v;
+    return vout;
 }
 
 float4 PS(VSOut pin) : SV_Target
 {
-    float3 posW = ReconstructPosition(pin);
+    float depth = gDepth.Sample(gsamPointClamp, pin.TexC).r;
+    if (depth >= 1.0f)
+        discard;
+    
+    float3 posW = ReconstructPosition(pin.TexC, depth);
     
     float2 uv = pin.TexC;
     float4 albedo = gAlbedo.Sample(gsamPointClamp, uv);
