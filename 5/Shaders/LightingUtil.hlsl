@@ -59,19 +59,26 @@ float3 ComputeDirectionalLight(Light L, Material mat, float3 normal, float3 toEy
 
 float3 ComputePointLight(Light L, Material mat, float3 pos, float3 normal, float3 toEye)
 {
-    float3 lightVec = L.Position - pos;
+    float3 dVec = L.Position - pos;
+    float distSq = dot(dVec, dVec);
+    float rangeSq = L.FalloffEnd * L.FalloffEnd;
 
-    float d = length(lightVec);
-
-    if(d > L.FalloffEnd)
+    if (distSq > rangeSq)
         return 0.0f;
 
-    lightVec /= d;
+    float d = sqrt(distSq);
+    float3 lightVec = dVec / d;
 
     float ndotl = max(dot(lightVec, normal), 0.0f);
+    if (ndotl <= 0.0f)
+        return 0.0f;
+
     float3 lightStrength = L.Strength * ndotl;
 
     float att = CalcAttenuation(d, L.FalloffStart, L.FalloffEnd);
+    if (att <= 0.0f)
+        return 0.0f;
+
     lightStrength *= att;
 
     return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);
@@ -79,22 +86,38 @@ float3 ComputePointLight(Light L, Material mat, float3 pos, float3 normal, float
 
 float3 ComputeSpotLight(Light L, Material mat, float3 pos, float3 normal, float3 toEye)
 {
-    float3 lightVec = L.Position - pos;
+    float3 dVec = L.Position - pos;
+    float distSq = dot(dVec, dVec);
+    float rangeSq = L.FalloffEnd * L.FalloffEnd;
 
-    float d = length(lightVec);
-
-    if(d > L.FalloffEnd)
+    if (distSq > rangeSq)
         return 0.0f;
 
-    lightVec /= d;
+    float d = sqrt(distSq);
+    float3 lightVec = dVec / d;
 
     float ndotl = max(dot(lightVec, normal), 0.0f);
+    if (ndotl <= 0.0f)
+        return 0.0f;
+
     float3 lightStrength = L.Strength * ndotl;
 
     float att = CalcAttenuation(d, L.FalloffStart, L.FalloffEnd);
+    if (att <= 0.0f)
+        return 0.0f;
+
     lightStrength *= att;
 
-    float spotFactor = pow(max(dot(-lightVec, L.Direction), 0.0f), L.SpotPower);
+    float spotFactor = dot(-lightVec, L.Direction);
+
+    if (spotFactor <= 0.0f)
+        return 0.0f;
+
+    spotFactor = pow(spotFactor, L.SpotPower);
+
+    if (spotFactor <= 0.001f)
+        return 0.0f;
+
     lightStrength *= spotFactor;
 
     return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);

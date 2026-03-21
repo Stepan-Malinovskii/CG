@@ -25,10 +25,10 @@ bool D3DFramework::Initialize()
 	ThrowIfFailed(_cmdList->Reset(_directCmdListAlloc.Get(), nullptr));
 	_cbvSrvDescriptorSize = _d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-	_gBuffer = std::make_unique<GBuffer>(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT);
-
 	LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/Model.obj");
 	CreateLight();
+
+	_gBuffer = std::make_unique<GBuffer>(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT);
 
 	CreateSceneObjects();
 	BuildRenderItems();
@@ -79,6 +79,8 @@ void D3DFramework::Update(const GameTimer& gt)
 	}
 
 	AnimateMaterials(gt);
+	AnimateLight(gt);
+
 	UpdateObjectCBs(gt);
 	UpdateMaterialCBs(gt);
 	UpdateMainPassCB(gt);
@@ -134,28 +136,16 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	ID3D12DescriptorHeap* heaps[] = {
 		_gBuffer->SRVHeap.Get(),   // t0-t2
-		_lightSrvHeap.Get()        // t3
 	};
 	_cmdList->SetDescriptorHeaps(_countof(heaps), heaps);
 
+	_cmdList->SetGraphicsRootDescriptorTable(0, _gBuffer->SRVHeap->GetGPUDescriptorHandleForHeapStart());
+
 	passCB = _currFrameResource->PassCB->Resource();
+	_cmdList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+
 	auto lightInfoCB = _currFrameResource->LightInfoCB->Resource();
-
-	// Slot 0: GBuffer textures (t0-t2) ✅
-	_cmdList->SetGraphicsRootDescriptorTable(0,
-		_gBuffer->SRVHeap->GetGPUDescriptorHandleForHeapStart());
-
-	// Slot 1: cbPass (b1) ✅
-	_cmdList->SetGraphicsRootConstantBufferView(1,
-		passCB->GetGPUVirtualAddress());
-
-	// Slot 2: StructuredBuffer<Light> (t3) ✅
-	_cmdList->SetGraphicsRootDescriptorTable(2,
-		_lightSrvHeap->GetGPUDescriptorHandleForHeapStart());
-
-	// Slot 3: cbLightInfo (b3) ✅
-	_cmdList->SetGraphicsRootConstantBufferView(3,
-		lightInfoCB->GetGPUVirtualAddress());
+	_cmdList->SetGraphicsRootConstantBufferView(2, lightInfoCB->GetGPUVirtualAddress());
 
 	// Fullscreen quad
 	_cmdList->IASetVertexBuffers(0, 0, nullptr);
@@ -269,6 +259,19 @@ void D3DFramework::AnimateMaterials(const GameTimer& gt)
 		mat->MatTransform._22 = mat->MatTransform._11;
 
 		mat->NumFramesDirty = NUM_FRAME_RECOURCES;
+	}
+}
+
+void D3DFramework::AnimateLight(const GameTimer& gt)
+{
+	float t = gt.TotalTime();
+
+	for (auto& l : _lights)
+	{
+		l.Data.Position = { 0.0f, 2.0f, 0.0f };
+		l.Data.Direction = { sin(t), cos(t), 0.0f };
+
+		l.NumFramesDirty = NUM_FRAME_RECOURCES;
 	}
 }
 
@@ -408,29 +411,20 @@ void D3DFramework::BuildRootSignatureGBuffer()
 void D3DFramework::BuildRootSignatureLightPass()
 {
 	CD3DX12_DESCRIPTOR_RANGE texTable;
-	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0); // t0-t2
+	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 4, 0);
 
-	CD3DX12_DESCRIPTOR_RANGE lightTable;
-	lightTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3); // t3
+	CD3DX12_ROOT_PARAMETER slotRootParameter[3];
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[4];
-
-	// Slot 0: GBuffer (t0-t2)
 	slotRootParameter[0].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
 
-	// Slot 1: cbPass → shader register b1 ✅
 	slotRootParameter[1].InitAsConstantBufferView(1, 0, D3D12_SHADER_VISIBILITY_PIXEL);
 
-	// Slot 2: StructuredBuffer<Light> (t3)
-	slotRootParameter[2].InitAsDescriptorTable(1, &lightTable, D3D12_SHADER_VISIBILITY_PIXEL);
-
-	// Slot 3: cbLightInfo → shader register b3 ✅
-	slotRootParameter[3].InitAsConstantBufferView(3, 0, D3D12_SHADER_VISIBILITY_PIXEL);
+	slotRootParameter[2].InitAsConstantBufferView(3, 0, D3D12_SHADER_VISIBILITY_PIXEL);
 
 	auto staticSamplers = GetStaticSamplers();
 
 	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(
-		4, slotRootParameter,
+		3, slotRootParameter,
 		(UINT)staticSamplers.size(), staticSamplers.data(),
 		D3D12_ROOT_SIGNATURE_FLAG_NONE
 	);
@@ -486,15 +480,6 @@ void D3DFramework::BuildDescriptorHeaps()
 
 void D3DFramework::BuildLightSRV()
 {
-	_lightSrvDescriptorSize = _d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = 1;
-	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-
-	ThrowIfFailed(_d3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&_lightSrvHeap)));
-
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
@@ -504,8 +489,10 @@ void D3DFramework::BuildLightSRV()
 	srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
 	srvDesc.Format = DXGI_FORMAT_UNKNOWN;
 
-	D3D12_CPU_DESCRIPTOR_HANDLE handle = _lightSrvHeap->GetCPUDescriptorHandleForHeapStart();
-	_d3dDevice->CreateShaderResourceView(_frameResources[0]->LightSB->Resource(), &srvDesc, handle);
+	D3D12_CPU_DESCRIPTOR_HANDLE handle = _gBuffer->SRVHeap->GetCPUDescriptorHandleForHeapStart();
+	CD3DX12_CPU_DESCRIPTOR_HANDLE cpuHandle(handle, 3, _d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV));
+
+	_d3dDevice->CreateShaderResourceView(_frameResources[0]->LightSB->Resource(), &srvDesc, cpuHandle);
 }
 
 void D3DFramework::BuildGBufferPSO()
@@ -615,7 +602,7 @@ void D3DFramework::BuildShadersAndInputLayout()
 
 void D3DFramework::CreateLight()
 {
-	constexpr int LIGHT_COUNT = 8;
+	constexpr int LIGHT_COUNT = 10;
 
 	auto RandomFloat = [&](float min, float max) -> float
 		{
@@ -627,7 +614,7 @@ void D3DFramework::CreateLight()
 	for (int i = 0; i < LIGHT_COUNT; ++i)
 	{
 		float r = RandomFloat(0, 1);
-		LightType type = (r < 0.3f) ? LightType::Directional : (r < 0.8f) ? LightType::Point : LightType::Spot;
+		LightType type = LightType::Spot;
 
 		XMFLOAT3 pos = {
 			RandomFloat(-10.f, 10.f),
@@ -650,7 +637,7 @@ void D3DFramework::CreateLight()
 
 		float falloffStart = RandomFloat(2.f, 5.f);
 		float falloffEnd = RandomFloat(15.f, 30.f);
-		float spotPower = RandomFloat(16.f, 128.f);
+		float spotPower = RandomFloat(1.f, 1.f);
 
 		Light light = {};
 		light.Data.Strength = color;

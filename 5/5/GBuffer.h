@@ -57,6 +57,7 @@ public:
     ComPtr<ID3D12DescriptorHeap> RTVHeap;
     ComPtr<ID3D12DescriptorHeap> SRVHeap;
     ComPtr<ID3D12DescriptorHeap> DSVHeap;
+
 private:
     void CreateTextures(ID3D12Device* device, int width, int height);
     void CreateSRV(ID3D12Device* device);
