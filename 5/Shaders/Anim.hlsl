@@ -80,5 +80,3 @@ VertexOut VS(VertexIn vin)
 
     return vout;
 }
-
-

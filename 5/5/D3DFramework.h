@@ -159,6 +159,10 @@ private:
     float _rotateSpeed = 0.15f;
 
     POINT _lastMousePos;
+
+private:
+    bool _isDebugMode = false;
+
 };
 
 #endif // !D3D_FRAMEWORK_HPP

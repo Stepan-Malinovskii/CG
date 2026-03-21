@@ -24,8 +24,8 @@ bool D3DFramework::Initialize()
 	if (!BaseD3DApp::Initialize()) { return false; }
 	ThrowIfFailed(_cmdList->Reset(_directCmdListAlloc.Get(), nullptr));
 	_cbvSrvDescriptorSize = _d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-	LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/Model.obj");
+	
+	LoadModel("C:/Users/HUAWEI/Desktop/CG/5/Models/Model.obj");
 	CreateLight();
 
 	_gBuffer = std::make_unique<GBuffer>(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT);
@@ -40,7 +40,7 @@ bool D3DFramework::Initialize()
 	BuildRootSignatureLightPass();
 	BuildDescriptorHeaps();
 	BuildShadersAndInputLayout();
-
+	
 	BuildGBufferPSO();
 	BuildLightPassPSO();
 
@@ -124,6 +124,7 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_gBuffer->TransitToLightRenderingState(_cmdList.Get());
 
 	//LIGHTING PASS
+
 	auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
 	_cmdList->ResourceBarrier(1, &barrier1);
 
@@ -135,7 +136,7 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_cmdList->SetGraphicsRootSignature(_rootSignatureLightPass.Get());
 
 	ID3D12DescriptorHeap* heaps[] = {
-		_gBuffer->SRVHeap.Get(),   // t0-t2
+		_gBuffer->SRVHeap.Get(), // t0-t3
 	};
 	_cmdList->SetDescriptorHeaps(_countof(heaps), heaps);
 
@@ -151,7 +152,51 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_cmdList->IASetVertexBuffers(0, 0, nullptr);
 	_cmdList->IASetIndexBuffer(nullptr);
 	_cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	_cmdList->DrawInstanced(3, 1, 0, 0);
+
+	if (_isDebugMode)
+	{
+		D3D12_RECT scissorRects[4] =
+		{
+			{ 0, 0, CLIENT_WIDTH / 2, CLIENT_HEIGHT / 2 },
+			{ CLIENT_WIDTH / 2, 0, CLIENT_WIDTH, CLIENT_HEIGHT / 2 },
+			{ 0, CLIENT_HEIGHT / 2, CLIENT_WIDTH / 2, CLIENT_HEIGHT },
+			{ CLIENT_WIDTH / 2, CLIENT_HEIGHT / 2, CLIENT_WIDTH, CLIENT_HEIGHT }
+		};
+
+		UINT passElementSize = D3DUtil::CalcConstantBufferSize(sizeof(PassConstants));
+
+		for (int i = 0; i < 4; i++)
+		{
+			PassConstants debugCB = _mainPassCB;
+			debugCB.DebugMode = 1;
+			debugCB.DebugViewIndex = i;
+
+			_currFrameResource->PassCB->CopyData(i, debugCB);
+
+			D3D12_GPU_VIRTUAL_ADDRESS passAddr =
+				_currFrameResource->PassCB->Resource()->GetGPUVirtualAddress()
+				+ i * passElementSize;
+
+			_cmdList->SetGraphicsRootConstantBufferView(1, passAddr);
+			_cmdList->RSSetScissorRects(1, &scissorRects[i]);
+			_cmdList->DrawInstanced(3, 1, 0, 0);
+		}
+	}
+	else
+	{
+		D3D12_RECT fullRect = { 0, 0, CLIENT_WIDTH, CLIENT_HEIGHT };
+		_cmdList->RSSetScissorRects(1, &fullRect);
+
+		_mainPassCB.DebugMode = 0;
+		_currFrameResource->PassCB->CopyData(0, _mainPassCB);
+
+		_cmdList->SetGraphicsRootConstantBufferView(
+			1,
+			_currFrameResource->PassCB->Resource()->GetGPUVirtualAddress()
+		);
+
+		_cmdList->DrawInstanced(3, 1, 0, 0);
+	}
 
 	auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
 	_cmdList->ResourceBarrier(1, &barrier2);
@@ -219,6 +264,13 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 
 	if (GetAsyncKeyState('D') & 0x8000)
 		pos += speed * right;
+
+	if (GetAsyncKeyState(VK_F1) & 0x8000)
+	{
+		_isDebugMode = !_isDebugMode;
+
+		Sleep(200);
+	}
 
 	XMStoreFloat3(&_eyePos, pos);
 }
@@ -344,6 +396,7 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 	_mainPassCB.FarZ = 1000.0f;
 	_mainPassCB.TotalTime = gt.TotalTime();
 	_mainPassCB.DeltaTime = gt.DeltaTime();
+	_mainPassCB.DebugMode = _isDebugMode ? 1 : 0;
 
 	auto currPassCB = _currFrameResource->PassCB.get();
 	currPassCB->CopyData(0, _mainPassCB);
@@ -417,7 +470,7 @@ void D3DFramework::BuildRootSignatureLightPass()
 
 	slotRootParameter[0].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
 
-	slotRootParameter[1].InitAsConstantBufferView(1, 0, D3D12_SHADER_VISIBILITY_PIXEL);
+	slotRootParameter[1].InitAsConstantBufferView(1, 0, D3D12_SHADER_VISIBILITY_ALL);
 
 	slotRootParameter[2].InitAsConstantBufferView(3, 0, D3D12_SHADER_VISIBILITY_PIXEL);
 
@@ -586,11 +639,11 @@ void D3DFramework::BuildShadersAndInputLayout()
 {
 	const D3D_SHADER_MACRO alphaTestDefines[] = { "ALPHA_TEST", "1", NULL, NULL };
 
-	_shaders["gbufferVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
-	_shaders["gbufferPS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "PS", "ps_5_1");
+	_shaders["gbufferVS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["gbufferPS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "PS", "ps_5_1");
 
-	_shaders["lightVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/LightPass.hlsl",nullptr, "VS", "vs_5_1");
-	_shaders["lightPS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "PS", "ps_5_1");
+	_shaders["lightVS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["lightPS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "PS", "ps_5_1");
 
 	_inputLayout =
 	{
@@ -716,8 +769,8 @@ void D3DFramework::BuildFrameResources()
 	for (int i = 0; i < NUM_FRAME_RECOURCES; ++i)
 	{
 		_frameResources.push_back(std::make_unique<FrameResource>(_d3dDevice.Get(),
-			1, 
-			(UINT)_allRitems.size(), 
+			(UINT)4,
+			(UINT)_allRitems.size(),
 			(UINT)_materials.size(),
 			(UINT)_lights.size()));
 	}
@@ -929,7 +982,7 @@ void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 
 		auto tex = std::make_unique<Texture>();
 		tex->Name = texName;
-		tex->Filename = L"C:/Users/Stepan/Desktop/CG/5/Textures/" + std::wstring(texName.begin(), texName.end());
+		tex->Filename = L"C:/Users/HUAWEI/Desktop/CG/5/Textures/" + std::wstring(texName.begin(), texName.end());
 
 		ResourceUploadBatch resourceUpload(_d3dDevice.Get());
 		resourceUpload.Begin();

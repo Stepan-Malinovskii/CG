@@ -32,6 +32,10 @@ cbuffer cbPass : register(b1)
     float gTotalTime;
     float gDeltaTime;
     float4 gAmbientLight;
+    
+    int DebugMode;
+    int DebugViewIndex;
+    int2 Pad;
 };
 
 cbuffer cbMaterial : register(b2)

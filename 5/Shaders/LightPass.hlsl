@@ -28,6 +28,10 @@ cbuffer cbPass : register(b1)
     float gTotalTime;
     float gDeltaTime;
     float4 gAmbientLight;
+    
+    int DebugMode;
+    int DebugViewIndex;
+    int2 Pad;
 };
 
 StructuredBuffer<Light> gLights : register(t3);
@@ -65,23 +69,88 @@ VSOut VS(uint vid : SV_VertexID)
     return vout;
 }
 
+//float4 PS(VSOut pin) : SV_Target
+//{
+//    float depth = gDepth.Sample(gsamPointClamp, pin.TexC).r;
+//    if (depth >= 1.0f)
+//        discard;
+    
+//    float3 posW = ReconstructPosition(pin.TexC, depth);
+    
+//    float2 uv = pin.TexC;
+//    float4 albedo = gAlbedo.Sample(gsamPointClamp, uv);
+//    float3 normal = normalize(gNormal.Sample(gsamPointClamp, uv).xyz);
+
+//    float3 toEye = normalize(gEyePosW - posW);
+//    float3 r0 = { 0.5f, 0.5f, 0.5f };
+    
+//    Material mat = { albedo, r0, 0.5f };
+
+//    float3 lighting = 0;
+//    for (uint i = 0; i < gLightCount; ++i)
+//    {
+//        Light L = gLights[i];
+//        if (L.LightType == 0)
+//            lighting += ComputeDirectionalLight(L, mat, normal, toEye);
+//        else if (L.LightType == 1)
+//            lighting += ComputePointLight(L, mat, posW, normal, toEye);
+//        else if (L.LightType == 2)
+//            lighting += ComputeSpotLight(L, mat, posW, normal, toEye);
+//    }
+
+//    return float4(albedo.rgb * gAmbientLight.rgb + lighting.rgb, 1.0f);
+//}
+
 float4 PS(VSOut pin) : SV_Target
 {
-    float depth = gDepth.Sample(gsamPointClamp, pin.TexC).r;
+    float2 uv = pin.TexC;
+    
+    float depth = gDepth.Sample(gsamPointClamp, uv).r;
     if (depth >= 1.0f)
         discard;
     
-    float3 posW = ReconstructPosition(pin.TexC, depth);
-    
-    float2 uv = pin.TexC;
+    float3 posW = ReconstructPosition(uv, depth);
     float4 albedo = gAlbedo.Sample(gsamPointClamp, uv);
     float3 normal = normalize(gNormal.Sample(gsamPointClamp, uv).xyz);
-
     float3 toEye = normalize(gEyePosW - posW);
-    float3 r0 = { 0.5f, 0.5f, 0.5f };
-    
-    Material mat = { albedo, r0, 0.5f };
 
+    if (DebugMode)
+    {
+        switch (DebugViewIndex)
+        {
+            case 0:
+            {
+                    float3 r0 = { 0.5f, 0.5f, 0.5f };
+                    Material mat = { albedo, r0, 0.5f };
+                    float3 lighting = 0;
+                    for (uint i = 0; i < gLightCount; ++i)
+                    {
+                        Light L = gLights[i];
+                        if (L.LightType == 0)
+                            lighting += ComputeDirectionalLight(L, mat, normal, toEye);
+                        else if (L.LightType == 1)
+                            lighting += ComputePointLight(L, mat, posW, normal, toEye);
+                        else if (L.LightType == 2)
+                            lighting += ComputeSpotLight(L, mat, posW, normal, toEye);
+                    }
+                    return float4(albedo.rgb * gAmbientLight.rgb + lighting.rgb, 1.0f);
+                }
+            case 1:
+                return albedo;
+                
+            case 2:
+                return float4(normal * 0.5f + 0.5f, 1.0f);
+                
+            case 3:
+                return float4(depth.xxx, 1.0f);
+                
+            default:
+                return float4(1.0f, 0.0f, 1.0f, 1.0f);
+        }
+    }
+
+    float3 r0 = { 0.5f, 0.5f, 0.5f };
+    Material mat = { albedo, r0, 0.5f };
     float3 lighting = 0;
     for (uint i = 0; i < gLightCount; ++i)
     {
@@ -93,6 +162,6 @@ float4 PS(VSOut pin) : SV_Target
         else if (L.LightType == 2)
             lighting += ComputeSpotLight(L, mat, posW, normal, toEye);
     }
-
+    
     return float4(albedo.rgb * gAmbientLight.rgb + lighting.rgb, 1.0f);
 }

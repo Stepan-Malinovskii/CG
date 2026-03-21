@@ -39,6 +39,10 @@ struct PassConstants
     float DeltaTime = 0.0f;
 
     XMFLOAT4 AmbientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+    int DebugMode = 0;
+    int DebugViewIndex = 0;
+    int Pad[2];
 };
 
 struct FrameResource
