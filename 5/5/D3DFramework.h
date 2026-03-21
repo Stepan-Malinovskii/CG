@@ -81,17 +81,20 @@ private:
     void UpdateObjectCBs(const GameTimer& gt);
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
+    void UpdateLightSB(const GameTimer& gt);
 
     void BuildRootSignatureGBuffer();
     void BuildRootSignatureLightPass();
 
     void BuildDescriptorHeaps();
+    void BuildLightSRV();
 
     void BuildGBufferPSO();
     void BuildLightPassPSO();
 
     void BuildShadersAndInputLayout();
 
+    void CreateLight();
     void LoadModel(std::string path);
     void CreateSceneObjects();
     void BuildRenderItems();
@@ -115,15 +118,17 @@ private:
     int _currFrameResourceIndex = 0;
 
     UINT _cbvSrvDescriptorSize = 0;
+    UINT _lightSrvDescriptorSize = 0;
 
     ComPtr<ID3D12RootSignature> _rootSignatureGBuffer = nullptr;
     ComPtr<ID3D12RootSignature> _rootSignatureLightPass = nullptr;
     ComPtr<ID3D12DescriptorHeap> _srvDescriptorHeap = nullptr;
-    ComPtr<ID3D12DescriptorHeap> _depthSrvHeap = nullptr;
+    ComPtr<ID3D12DescriptorHeap> _lightSrvHeap = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> _geometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> _materials;
     std::unordered_map<std::string, std::unique_ptr<Texture>> _textures;
+    std::vector<Light> _lights;
 
     std::unordered_map<std::string, std::unique_ptr<Model>> _models;
     std::vector<std::unique_ptr<SceneObject>> _sceneObjects;

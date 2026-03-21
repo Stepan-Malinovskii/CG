@@ -7,6 +7,7 @@
 #include <d3dcompiler.h>
 #include <array>
 #include <algorithm>
+#include <random>
 
 #include "LunaDDSTextureLoader.h"
 #include "D3DUtil.h"
@@ -27,9 +28,13 @@ bool D3DFramework::Initialize()
 	_gBuffer = std::make_unique<GBuffer>(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT);
 
 	LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/Model.obj");
+	CreateLight();
+
 	CreateSceneObjects();
 	BuildRenderItems();
+
 	BuildFrameResources();
+	BuildLightSRV();
 
 	BuildRootSignatureGBuffer();
 	BuildRootSignatureLightPass();
@@ -43,6 +48,7 @@ bool D3DFramework::Initialize()
 	ID3D12CommandList* cmdsLists[] = { _cmdList.Get() };
 	_cmdQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
 	FlushCommandQueue();
+
 	return true;
 }
 
@@ -76,6 +82,7 @@ void D3DFramework::Update(const GameTimer& gt)
 	UpdateObjectCBs(gt);
 	UpdateMaterialCBs(gt);
 	UpdateMainPassCB(gt);
+	UpdateLightSB(gt);
 }
 
 void D3DFramework::Draw(const GameTimer& gt)
@@ -87,13 +94,10 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_cmdList->RSSetViewports(1, &_screenViewport);
 	_cmdList->RSSetScissorRects(1, &_scissorRect);
 
-	// =========================
-// 1. GEOMETRY PASS (GBuffer)
-// =========================
+	//GEOMETRY PASS (GBuffer)
+
 	_gBuffer->TransitToOpaqueRenderingState(_cmdList.Get());
 	_gBuffer->ClearView(_cmdList.Get());
-
-	// GBuffer рендерит ТОЛЬКО в свои текстуры, бэк-буфер не трогаем!
 
 	std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 2> rtvs = 
 	{
@@ -111,56 +115,58 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_cmdList->SetDescriptorHeaps(1, dvs_heaps);
 
 	auto passCB = _currFrameResource->PassCB->Resource();
-	_cmdList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress()); // cbPass -> slot 2
+	_cmdList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
 	DrawRenderItems(_cmdList.Get(), _opaqueRitems);
 
 	_gBuffer->TransitToLightRenderingState(_cmdList.Get());
 
-	// =========================
-	// 2. LIGHTING PASS
-	// =========================
-
-	// ✅ Барьер для бэк-буфера ПЕРЕД использованием
-	auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-		CurrentBackBuffer(),
-		D3D12_RESOURCE_STATE_PRESENT,
-		D3D12_RESOURCE_STATE_RENDER_TARGET);
-	_cmdList->ResourceBarrier(1, &barrier);
+	//LIGHTING PASS
+	auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+	_cmdList->ResourceBarrier(1, &barrier1);
 
 	auto backBuffer = CurrentBackBufferView();
-	_cmdList->OMSetRenderTargets(1, &backBuffer, FALSE, nullptr); // DSV не нужен
+	_cmdList->OMSetRenderTargets(1, &backBuffer, FALSE, nullptr);
 	_cmdList->ClearRenderTargetView(backBuffer, Colors::Black, 0, nullptr);
 
 	_cmdList->SetPipelineState(_psos["lightPass"].Get());
 	_cmdList->SetGraphicsRootSignature(_rootSignatureLightPass.Get());
 
-	ID3D12DescriptorHeap* heaps[] = { _gBuffer->SRVHeap.Get() };
+	ID3D12DescriptorHeap* heaps[] = {
+		_gBuffer->SRVHeap.Get(),   // t0-t2
+		_lightSrvHeap.Get()        // t3
+	};
 	_cmdList->SetDescriptorHeaps(_countof(heaps), heaps);
 
-	// ✅ GBuffer текстуры -> slot 0
-	_cmdList->SetGraphicsRootDescriptorTable(0, _gBuffer->SRVHeap->GetGPUDescriptorHandleForHeapStart());
+	passCB = _currFrameResource->PassCB->Resource();
+	auto lightInfoCB = _currFrameResource->LightInfoCB->Resource();
 
-	// ✅ cbPass -> b1 -> slot 2 (НЕ slot 1!)
-	_cmdList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+	// Slot 0: GBuffer textures (t0-t2) ✅
+	_cmdList->SetGraphicsRootDescriptorTable(0,
+		_gBuffer->SRVHeap->GetGPUDescriptorHandleForHeapStart());
 
-	// ✅ Если используешь cbMaterial в освещении:
-	// _cmdList->SetGraphicsRootConstantBufferView(3, matCB->GetGPUVirtualAddress());
+	// Slot 1: cbPass (b1) ✅
+	_cmdList->SetGraphicsRootConstantBufferView(1,
+		passCB->GetGPUVirtualAddress());
 
-	// Fullscreen triangle
+	// Slot 2: StructuredBuffer<Light> (t3) ✅
+	_cmdList->SetGraphicsRootDescriptorTable(2,
+		_lightSrvHeap->GetGPUDescriptorHandleForHeapStart());
+
+	// Slot 3: cbLightInfo (b3) ✅
+	_cmdList->SetGraphicsRootConstantBufferView(3,
+		lightInfoCB->GetGPUVirtualAddress());
+
+	// Fullscreen quad
 	_cmdList->IASetVertexBuffers(0, 0, nullptr);
 	_cmdList->IASetIndexBuffer(nullptr);
 	_cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	_cmdList->DrawInstanced(3, 1, 0, 0);
 
-	// =========================
-	// 3. PRESENT
-	// =========================
-	auto barrierPresent = CD3DX12_RESOURCE_BARRIER::Transition(
-		CurrentBackBuffer(),
-		D3D12_RESOURCE_STATE_RENDER_TARGET,
-		D3D12_RESOURCE_STATE_PRESENT);
-	_cmdList->ResourceBarrier(1, &barrierPresent);
+	auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+	_cmdList->ResourceBarrier(1, &barrier2);
+
+	//PRESENT
 
 	ThrowIfFailed(_cmdList->Close());
 	ID3D12CommandList* cmdsLists[] = { _cmdList.Get() };
@@ -336,13 +342,33 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 	_mainPassCB.TotalTime = gt.TotalTime();
 	_mainPassCB.DeltaTime = gt.DeltaTime();
 
-	_mainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
-	_mainPassCB.Lights[0].Position = { 0.0f, 1.0f, 0.0f };
-	_mainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
-	_mainPassCB.Lights[0].Strength = { 1.0f, 0.0f, 0.0f };
-
 	auto currPassCB = _currFrameResource->PassCB.get();
 	currPassCB->CopyData(0, _mainPassCB);
+}
+
+void D3DFramework::UpdateLightSB(const GameTimer& gt)
+{
+	auto currLightSB = _currFrameResource->LightSB.get();
+	auto currLightInfo = _currFrameResource->LightInfoCB.get();
+
+	int activeLight = 0;
+	for (size_t i = 0; i < _lights.size(); ++i)
+	{
+		if (_lights[i].IsActive)
+		{
+			activeLight++;
+
+			if (_lights[i].NumFramesDirty > 0)
+			{
+				currLightSB->CopyData((UINT)i, _lights[i].Data);
+				_lights[i].NumFramesDirty--;
+			}
+		}
+	}
+
+	LightInfoConstants lightInfo = {};
+	lightInfo.LightCount = activeLight;
+	currLightInfo->CopyData(0, lightInfo);
 }
 
 void D3DFramework::BuildRootSignatureGBuffer()
@@ -382,21 +408,30 @@ void D3DFramework::BuildRootSignatureGBuffer()
 void D3DFramework::BuildRootSignatureLightPass()
 {
 	CD3DX12_DESCRIPTOR_RANGE texTable;
-	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0);
+	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0); // t0-t2
+
+	CD3DX12_DESCRIPTOR_RANGE lightTable;
+	lightTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3); // t3
 
 	CD3DX12_ROOT_PARAMETER slotRootParameter[4];
+
+	// Slot 0: GBuffer (t0-t2)
 	slotRootParameter[0].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
-	slotRootParameter[1].InitAsConstantBufferView(0);
-	slotRootParameter[2].InitAsConstantBufferView(1);
-	slotRootParameter[3].InitAsConstantBufferView(2);
+
+	// Slot 1: cbPass → shader register b1 ✅
+	slotRootParameter[1].InitAsConstantBufferView(1, 0, D3D12_SHADER_VISIBILITY_PIXEL);
+
+	// Slot 2: StructuredBuffer<Light> (t3)
+	slotRootParameter[2].InitAsDescriptorTable(1, &lightTable, D3D12_SHADER_VISIBILITY_PIXEL);
+
+	// Slot 3: cbLightInfo → shader register b3 ✅
+	slotRootParameter[3].InitAsConstantBufferView(3, 0, D3D12_SHADER_VISIBILITY_PIXEL);
 
 	auto staticSamplers = GetStaticSamplers();
 
 	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(
-		4,
-		slotRootParameter,
-		(UINT)staticSamplers.size(),
-		staticSamplers.data(),
+		4, slotRootParameter,
+		(UINT)staticSamplers.size(), staticSamplers.data(),
 		D3D12_ROOT_SIGNATURE_FLAG_NONE
 	);
 
@@ -406,17 +441,13 @@ void D3DFramework::BuildRootSignatureLightPass()
 		serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
 
 	if (errorBlob != nullptr)
-	{
 		OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-	}
 
 	ThrowIfFailed(hr);
-
 	ThrowIfFailed(_d3dDevice->CreateRootSignature(0,
 		serializedRootSig->GetBufferPointer(),
 		serializedRootSig->GetBufferSize(),
-		IID_PPV_ARGS(&_rootSignatureLightPass)
-	));
+		IID_PPV_ARGS(&_rootSignatureLightPass)));
 }
 
 void D3DFramework::BuildDescriptorHeaps()
@@ -451,6 +482,30 @@ void D3DFramework::BuildDescriptorHeaps()
 
 		hDescriptor.Offset(1, _cbvSrvDescriptorSize);
 	}
+}
+
+void D3DFramework::BuildLightSRV()
+{
+	_lightSrvDescriptorSize = _d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
+	srvHeapDesc.NumDescriptors = 1;
+	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+
+	ThrowIfFailed(_d3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&_lightSrvHeap)));
+
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+	srvDesc.Buffer.FirstElement = 0;
+	srvDesc.Buffer.NumElements = (UINT)_lights.size();
+	srvDesc.Buffer.StructureByteStride = sizeof(LightConstants);
+	srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+	srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+
+	D3D12_CPU_DESCRIPTOR_HANDLE handle = _lightSrvHeap->GetCPUDescriptorHandleForHeapStart();
+	_d3dDevice->CreateShaderResourceView(_frameResources[0]->LightSB->Resource(), &srvDesc, handle);
 }
 
 void D3DFramework::BuildGBufferPSO()
@@ -513,6 +568,7 @@ void D3DFramework::BuildLightPassPSO()
 	psoDesc.pRootSignature = _rootSignatureLightPass.Get();
 	psoDesc.BlendState = blendDesc;
 	psoDesc.DepthStencilState = dsDesc;
+	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
 
 	psoDesc.VS =
 	{
@@ -525,10 +581,6 @@ void D3DFramework::BuildLightPassPSO()
 		reinterpret_cast<BYTE*>(_shaders["lightPS"]->GetBufferPointer()),
 		_shaders["lightPS"]->GetBufferSize()
 	};
-
-	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-	psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 
 	psoDesc.SampleMask = UINT_MAX;
 	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
@@ -547,11 +599,6 @@ void D3DFramework::BuildShadersAndInputLayout()
 {
 	const D3D_SHADER_MACRO alphaTestDefines[] = { "ALPHA_TEST", "1", NULL, NULL };
 
-	//_shaders["standardVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/Default.hlsl", nullptr, "VS", "vs_5_1");
-	//_shaders["opaquePS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/Default.hlsl", nullptr, "PS", "ps_5_1");
-
-	//_shaders["animVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/Anim.hlsl", nullptr, "VS", "vs_5_1");
-
 	_shaders["gbufferVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
 	_shaders["gbufferPS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "PS", "ps_5_1");
 
@@ -564,6 +611,64 @@ void D3DFramework::BuildShadersAndInputLayout()
 		{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 		{ "TEXCOORD",	0,	DXGI_FORMAT_R32G32_FLOAT,	0,	24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 }
 	};
+}
+
+void D3DFramework::CreateLight()
+{
+	constexpr int LIGHT_COUNT = 8;
+
+	auto RandomFloat = [&](float min, float max) -> float
+		{
+			static std::mt19937 gen(std::random_device{}());
+			std::uniform_real_distribution<float> dis(min, max);
+			return dis(gen);
+		};
+
+	for (int i = 0; i < LIGHT_COUNT; ++i)
+	{
+		float r = RandomFloat(0, 1);
+		LightType type = (r < 0.3f) ? LightType::Directional : (r < 0.8f) ? LightType::Point : LightType::Spot;
+
+		XMFLOAT3 pos = {
+			RandomFloat(-10.f, 10.f),
+			RandomFloat(5.f, 15.f),
+			RandomFloat(-10.f, 10.f)
+		};
+
+		XMFLOAT3 color = {
+			RandomFloat(0.5f, 1.0f),
+			RandomFloat(0.5f, 1.0f),
+			RandomFloat(0.5f, 1.0f)
+		};
+
+		XMFLOAT3 dir = {
+			RandomFloat(-1.f, 1.f),
+			RandomFloat(-1.f, 0.f),
+			RandomFloat(-1.f, 1.f)
+		};
+		XMStoreFloat3(&dir, XMVector3Normalize(XMLoadFloat3(&dir)));
+
+		float falloffStart = RandomFloat(2.f, 5.f);
+		float falloffEnd = RandomFloat(15.f, 30.f);
+		float spotPower = RandomFloat(16.f, 128.f);
+
+		Light light = {};
+		light.Data.Strength = color;
+		light.Data.FalloffStart = falloffStart;
+		light.Data.Direction = dir;
+		light.Data.FalloffEnd = falloffEnd;
+		light.Data.Position = pos;
+		light.Data.SpotPower = spotPower;
+		light.Data.LightType = static_cast<int>(type);
+		light.Data.Pad[0] = 0;
+		light.Data.Pad[1] = 0;
+		light.Data.Pad[2] = 0;
+		light.IsActive = true;
+		light.NumFramesDirty = NUM_FRAME_RECOURCES;
+		light.LightIndex = (int)_lights.size();
+
+		_lights.push_back(light);
+	}
 }
 
 void D3DFramework::LoadModel(std::string path)
@@ -623,8 +728,11 @@ void D3DFramework::BuildFrameResources()
 {
 	for (int i = 0; i < NUM_FRAME_RECOURCES; ++i)
 	{
-		_frameResources.push_back(std::make_unique<FrameResource>(_d3dDevice.Get(), 1, 
-									(UINT)_allRitems.size(), (UINT)_materials.size()));
+		_frameResources.push_back(std::make_unique<FrameResource>(_d3dDevice.Get(),
+			1, 
+			(UINT)_allRitems.size(), 
+			(UINT)_materials.size(),
+			(UINT)_lights.size()));
 	}
 }
 

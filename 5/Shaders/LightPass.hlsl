@@ -1,15 +1,3 @@
-#ifndef NUM_DIR_LIGHTS
-    #define NUM_DIR_LIGHTS 0
-#endif
-
-#ifndef NUM_POINT_LIGHTS
-    #define NUM_POINT_LIGHTS 1
-#endif
-
-#ifndef NUM_SPOT_LIGHTS
-    #define NUM_SPOT_LIGHTS 0
-#endif
-
 #include "LightingUtil.hlsl"
 
 Texture2D gAlbedo : register(t0);
@@ -22,12 +10,6 @@ SamplerState gsamLinearWrap : register(s2);
 SamplerState gsamLinearClamp : register(s3);
 SamplerState gsamAnisotropicWrap : register(s4);
 SamplerState gsamAnisotropicClamp : register(s5);
-
-cbuffer cbPerObject : register(b0)
-{
-    float4x4 gWorld;
-    float4x4 gTexTransform;
-};
 
 cbuffer cbPass : register(b1)
 {
@@ -46,16 +28,14 @@ cbuffer cbPass : register(b1)
     float gTotalTime;
     float gDeltaTime;
     float4 gAmbientLight;
-
-    Light gLights[MaxLights];
 };
 
-cbuffer cbMaterial : register(b2)
+StructuredBuffer<Light> gLights : register(t3);
+
+cbuffer cbLightInfo : register(b3)
 {
-    float4 gDiffuseAlbedo;
-    float3 gFresnelR0;
-    float gRoughness;
-    float4x4 gMatTransform;
+    uint gLightCount;
+    int3 pad;
 };
 
 struct VSOut
@@ -67,7 +47,7 @@ struct VSOut
 float3 ReconstructPosition(float2 texCoord, float depth)
 {
     float x = texCoord.x * 2.0f - 1.0f;
-    float y = (1.0f - texCoord.y) * 2.0f - 1.0f;
+    float y = 1.0f - texCoord.y * 2.0f;
     
     float4 ndcPos = float4(x, y, depth, 1.0f);
     float4 worldPos = mul(ndcPos, gInvViewProj);
@@ -98,13 +78,21 @@ float4 PS(VSOut pin) : SV_Target
     float3 normal = normalize(gNormal.Sample(gsamPointClamp, uv).xyz);
 
     float3 toEye = normalize(gEyePosW - posW);
+    float3 r0 = { 0.5f, 0.5f, 0.5f };
+    
+    Material mat = { albedo, r0, 0.5f };
 
-    const float shininess = 1.0f - gRoughness;
-    Material mat = { albedo, gFresnelR0, shininess };
+    float3 lighting = 0;
+    for (uint i = 0; i < gLightCount; ++i)
+    {
+        Light L = gLights[i];
+        if (L.LightType == 0)
+            lighting += ComputeDirectionalLight(L, mat, normal, toEye);
+        else if (L.LightType == 1)
+            lighting += ComputePointLight(L, mat, posW, normal, toEye);
+        else if (L.LightType == 2)
+            lighting += ComputeSpotLight(L, mat, posW, normal, toEye);
+    }
 
-    float4 lighting = ComputeLighting(gLights, mat, posW, normal, toEye, 1.0f);
-
-    float3 finalColor = albedo.rgb * gAmbientLight.rgb + lighting.rgb;
-
-    return float4(finalColor, 1.0f);
+    return float4(albedo.rgb * gAmbientLight.rgb + lighting.rgb, 1.0f);
 }

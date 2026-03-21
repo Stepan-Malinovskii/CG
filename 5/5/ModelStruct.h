@@ -76,7 +76,9 @@ struct MeshGeometry
 	}
 };
 
-struct Light
+enum class LightType { Directional = 0, Point = 1, Spot = 2 };
+
+struct alignas(16) LightConstants
 {
 	XMFLOAT3 Strength = { 0.5f, 0.5f, 0.5f };
 	float FalloffStart = 1.0f;
@@ -84,6 +86,23 @@ struct Light
 	float FalloffEnd = 10.0f;
 	XMFLOAT3 Position = { 0.0f, 0.0f, 0.0f };
 	float SpotPower = 64.0f;
+	int LightType;
+	int Pad[3];
+};
+
+struct Light
+{
+	int LightIndex = -1;
+
+	LightConstants Data;
+	bool IsActive = true;
+	int NumFramesDirty = 3; //NUM_FRAME_RECOURCES
+};
+
+struct LightInfoConstants
+{
+	UINT LightCount;
+	UINT Pad[3];
 };
 
 struct MaterialConstants
@@ -91,7 +110,6 @@ struct MaterialConstants
 	XMFLOAT4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };
 	XMFLOAT3 FresnelR0 = { 0.01f, 0.01f, 0.01f };
 	float Roughness = 0.25f;
-
 	XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
 };
 
@@ -108,7 +126,7 @@ struct Material
 	int NumFramesDirty = 3; //NUM_FRAME_RECOURCES
 
 	XMFLOAT4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };
-	XMFLOAT3 FresnelR0 = { 1.0f, 1.0f, 1.0f };//{ 0.01f, 0.01f, 0.01f };
+	XMFLOAT3 FresnelR0 = { 1.0f, 1.0f, 1.0f };
 	float Roughness = .25f;
 	XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
 };

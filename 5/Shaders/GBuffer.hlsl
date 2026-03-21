@@ -1,15 +1,3 @@
-#ifndef NUM_DIR_LIGHTS
-    #define NUM_DIR_LIGHTS 0
-#endif
-
-#ifndef NUM_POINT_LIGHTS
-    #define NUM_POINT_LIGHTS 1
-#endif
-
-#ifndef NUM_SPOT_LIGHTS
-    #define NUM_SPOT_LIGHTS 0
-#endif
-
 #include "LightingUtil.hlsl"
 
 Texture2D gDiffuseMap : register(t0);
@@ -44,8 +32,6 @@ cbuffer cbPass : register(b1)
     float gTotalTime;
     float gDeltaTime;
     float4 gAmbientLight;
-
-    Light gLights[MaxLights];
 };
 
 cbuffer cbMaterial : register(b2)
