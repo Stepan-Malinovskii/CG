@@ -16,6 +16,7 @@ struct Vertex
 {
 	XMFLOAT3 Pos;
 	XMFLOAT3 Normal;
+	XMFLOAT4 Tangent;
 	XMFLOAT2 TexC;
 };
 
@@ -111,6 +112,7 @@ struct MaterialConstants
 	XMFLOAT3 FresnelR0 = { 0.01f, 0.01f, 0.01f };
 	float Roughness = 0.25f;
 	XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
+	float NormalIntencity = 1.0f;
 };
 
 struct Material
@@ -125,10 +127,7 @@ struct Material
 
 	int NumFramesDirty = 3; //NUM_FRAME_RECOURCES
 
-	XMFLOAT4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };
-	XMFLOAT3 FresnelR0 = { 1.0f, 1.0f, 1.0f };
-	float Roughness = .25f;
-	XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
+	MaterialConstants Data;
 };
 
 struct Texture

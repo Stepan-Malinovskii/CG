@@ -62,6 +62,15 @@ namespace
             mi.DiffuseTextureName = "";
         }
 
+        if (mat->GetTexture(aiTextureType_NORMALS, 0, &texPath) == AI_SUCCESS) 
+        { 
+            mi.NormalTextureName = ExtractTextureFilename(texPath); 
+        }
+        else 
+        { 
+            mi.NormalTextureName = ""; 
+        }
+
         return mi;
     }
 
@@ -106,6 +115,37 @@ namespace
             else
             {
                 vert.TexC = { 0,0 };
+            }
+
+            if (mesh->HasTangentsAndBitangents())
+            {
+                XMFLOAT3 T =
+                {
+                    mesh->mTangents[v].x,
+                    mesh->mTangents[v].y,
+                    mesh->mTangents[v].z
+                };
+
+                XMFLOAT3 B =
+                {
+                    mesh->mBitangents[v].x,
+                    mesh->mBitangents[v].y,
+                    mesh->mBitangents[v].z
+                };
+
+                XMFLOAT3 N = vert.Normal;
+
+                XMVECTOR t = XMLoadFloat3(&T);
+                XMVECTOR b = XMLoadFloat3(&B);
+                XMVECTOR n = XMLoadFloat3(&N);
+
+                float handedness = (XMVectorGetX(XMVector3Dot(XMVector3Cross(n, t), b)) < 0.0f) ? -1.0f : 1.0f;
+
+                vert.Tangent = { T.x, T.y, T.z, handedness };
+            }
+            else
+            {
+                vert.Tangent = { 1,0,0,1 };
             }
 
             meshInfo.Vertices.push_back(vert);

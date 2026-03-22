@@ -34,6 +34,7 @@ public:
 	{
 		std::string Name;
 		std::string DiffuseTextureName;
+		std::string NormalTextureName;
 		XMFLOAT4 DiffuseColor = { 1,1,1,1 };
 		XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
 	};

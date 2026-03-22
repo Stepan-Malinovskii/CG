@@ -25,7 +25,7 @@ bool D3DFramework::Initialize()
 	ThrowIfFailed(_cmdList->Reset(_directCmdListAlloc.Get(), nullptr));
 	_cbvSrvDescriptorSize = _d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 	
-	LoadModel("C:/Users/HUAWEI/Desktop/CG/5/Models/Model.obj");
+	LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/Model.obj");
 	CreateLight();
 
 	_gBuffer = std::make_unique<GBuffer>(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT);
@@ -307,8 +307,8 @@ void D3DFramework::AnimateMaterials(const GameTimer& gt)
 		Material* mat = kv.second.get();
 
 		float pulse = 0.5f * sinf(2.0f * t) + 0.5f;
-		mat->MatTransform._11 = 0.8f + 0.2f * pulse;
-		mat->MatTransform._22 = mat->MatTransform._11;
+		mat->Data.MatTransform._11 = 0.8f + 0.2f * pulse;
+		mat->Data.MatTransform._22 = mat->Data.MatTransform._11;
 
 		mat->NumFramesDirty = NUM_FRAME_RECOURCES;
 	}
@@ -316,15 +316,15 @@ void D3DFramework::AnimateMaterials(const GameTimer& gt)
 
 void D3DFramework::AnimateLight(const GameTimer& gt)
 {
-	float t = gt.TotalTime();
+	/*float t = gt.TotalTime();
 
 	for (auto& l : _lights)
 	{
-		l.Data.Position = { 0.0f, 2.0f, 0.0f };
-		l.Data.Direction = { sin(t), cos(t), 0.0f };
+		l.Data.Position = { sin(t) * 1.0f, 2.0f, cos(t) * 1.0f};
+		l.Data.Direction = { sin(t) * 1.0f, 1.0f, cos(t) * 1.0f };
 
 		l.NumFramesDirty = NUM_FRAME_RECOURCES;
-	}
+	}*/
 }
 
 void D3DFramework::UpdateObjectCBs(const GameTimer& gt)
@@ -357,15 +357,7 @@ void D3DFramework::UpdateMaterialCBs(const GameTimer& gt)
 		Material* mat = e.second.get();
 		if (mat->NumFramesDirty > 0)
 		{
-			XMMATRIX matTransform = XMLoadFloat4x4(&mat->MatTransform);
-
-			MaterialConstants matConstants;
-			matConstants.DiffuseAlbedo = mat->DiffuseAlbedo;
-			matConstants.FresnelR0 = mat->FresnelR0;
-			matConstants.Roughness = mat->Roughness;
-			XMStoreFloat4x4(&matConstants.MatTransform, XMMatrixTranspose(matTransform));
-
-			currMaterialCB->CopyData(mat->MatCBIndex, matConstants);
+			currMaterialCB->CopyData(mat->MatCBIndex, mat->Data);
 
 			mat->NumFramesDirty--;
 		}
@@ -639,17 +631,18 @@ void D3DFramework::BuildShadersAndInputLayout()
 {
 	const D3D_SHADER_MACRO alphaTestDefines[] = { "ALPHA_TEST", "1", NULL, NULL };
 
-	_shaders["gbufferVS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
-	_shaders["gbufferPS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "PS", "ps_5_1");
+	_shaders["gbufferVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["gbufferPS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "PS", "ps_5_1");
 
-	_shaders["lightVS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "VS", "vs_5_1");
-	_shaders["lightPS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "PS", "ps_5_1");
+	_shaders["lightVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["lightPS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "PS", "ps_5_1");
 
 	_inputLayout =
 	{
-		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "TEXCOORD",	0,	DXGI_FORMAT_R32G32_FLOAT,	0,	24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,	0 }
+		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, 0,  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT,    0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "TANGENT",  0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,       0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
 	};
 }
 
@@ -982,7 +975,7 @@ void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 
 		auto tex = std::make_unique<Texture>();
 		tex->Name = texName;
-		tex->Filename = L"C:/Users/HUAWEI/Desktop/CG/5/Textures/" + std::wstring(texName.begin(), texName.end());
+		tex->Filename = L"C:/Users/Stepan/Desktop/CG/5/Textures/" + std::wstring(texName.begin(), texName.end());
 
 		ResourceUploadBatch resourceUpload(_d3dDevice.Get());
 		resourceUpload.Begin();
@@ -1019,14 +1012,17 @@ void D3DFramework::ParseMaterials(const ModelParse::MeshInfo& meshData)
 		mat->Name = matName;
 		mat->MatCBIndex = matCBIndex++;
 
-		mat->DiffuseAlbedo = XMFLOAT4(mi.DiffuseColor.x, mi.DiffuseColor.y, mi.DiffuseColor.z, mi.DiffuseColor.w);
+		MaterialConstants data;
+
+		data.DiffuseAlbedo = XMFLOAT4(mi.DiffuseColor.x, mi.DiffuseColor.y, mi.DiffuseColor.z, mi.DiffuseColor.w);
 
 		if (_textures.count(mi.DiffuseTextureName)) { mat->DiffuseSrvHeapIndex = _textures[mi.DiffuseTextureName]->SrvHeapIndex; }
 		else { mat->DiffuseSrvHeapIndex = -1; }
 
-		mat->FresnelR0 = { 0.01f, 0.01f, 0.01f };
-		mat->Roughness = 0.3f;
+		data.FresnelR0 = { 0.01f, 0.01f, 0.01f };
+		data.Roughness = 0.3f;
 
+		mat->Data = std::move(data);
 		_materials[matName] = std::move(mat);
 	}
 }
