@@ -62,13 +62,21 @@ namespace
             mi.DiffuseTextureName = "";
         }
 
-        if (mat->GetTexture(aiTextureType_NORMALS, 0, &texPath) == AI_SUCCESS) 
-        { 
-            mi.NormalTextureName = ExtractTextureFilename(texPath); 
+        if (mat->GetTexture(aiTextureType_NORMALS, 0, &texPath) == AI_SUCCESS)
+        {
+            mi.NormalTextureName = ExtractTextureFilename(texPath);
         }
-        else 
-        { 
-            mi.NormalTextureName = ""; 
+        else if (mat->GetTexture(aiTextureType_HEIGHT, 0, &texPath) == AI_SUCCESS)
+        {
+             mi.NormalTextureName = ExtractTextureFilename(texPath);
+        }
+        else if (mat->GetTexture(aiTextureType_NORMAL_CAMERA, 0, &texPath) == AI_SUCCESS)
+        {
+            mi.NormalTextureName = ExtractTextureFilename(texPath);
+        }
+        else
+        {
+            mi.NormalTextureName = "";
         }
 
         return mi;

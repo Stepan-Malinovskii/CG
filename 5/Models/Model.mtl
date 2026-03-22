@@ -14,7 +14,7 @@ Ke 0 0 0
 map_Kd material91.png
 map_Pm metalnessMap1.png
 map_Pr metalnessMap1.png
-norm normalMap1.png
+bump normalMap1.png
 
 newmtl material87
 Tr 0.0000
@@ -30,7 +30,7 @@ Ke 0 0 0
 map_Kd material87.png
 map_Pm metalnessMap2.png
 map_Pr metalnessMap2.png
-norm normalMap2.png
+bump normalMap2.png
 
 newmtl material89
 Tr 0.0000
@@ -46,7 +46,7 @@ Ke 0 0 0
 map_Kd material89.png
 map_Pm metalnessMap3.png
 map_Pr metalnessMap3.png
-norm normalMap3.png
+bump normalMap3.png
 
 newmtl material88
 Tr 0.0000
@@ -62,7 +62,7 @@ Ke 0 0 0
 map_Kd material88.png
 map_Pm metalnessMap4.png
 map_Pr metalnessMap4.png
-norm normalMap4.png
+bump normalMap4.png
 
 newmtl material92
 Tr 0.0000
@@ -78,7 +78,7 @@ Ke 0 0 0
 map_Kd material92.png
 map_Pm metalnessMap5.png
 map_Pr metalnessMap5.png
-norm normalMap5.png
+bump normalMap5.png
 
 newmtl material90
 Tr 0.0000
@@ -94,7 +94,7 @@ Ke 0 0 0
 map_Kd material90.png
 map_Pm metalnessMap6.png
 map_Pr metalnessMap6.png
-norm normalMap6.png
+bump normalMap6.png
 
 newmtl material93
 Tr 0.0000
@@ -110,7 +110,7 @@ Ke 0 0 0
 map_Kd material93.png
 map_Pm metalnessMap7.png
 map_Pr metalnessMap7.png
-norm normalMap7.png
+bump normalMap7.png
 
 newmtl material94
 Tr 0.0000
@@ -126,7 +126,7 @@ Ke 0 0 0
 map_Kd material94.png
 map_Pm metalnessMap8.png
 map_Pr metalnessMap8.png
-norm normalMap8.png
+bump normalMap8.png
 
 newmtl material95
 Tr 0.0000
@@ -142,7 +142,7 @@ Ke 0 0 0
 map_Kd material95.png
 map_Pm metalnessMap9.png
 map_Pr metalnessMap9.png
-norm normalMap9.png
+bump normalMap9.png
 
 newmtl material99
 Tr 0.0000
@@ -158,7 +158,7 @@ Ke 0 0 0
 map_Kd material99.png
 map_Pm metalnessMap10.png
 map_Pr metalnessMap10.png
-norm normalMap10.png
+bump normalMap10.png
 
 newmtl material98
 Tr 0.0000
@@ -174,7 +174,7 @@ Ke 0 0 0
 map_Kd material98.png
 map_Pm metalnessMap11.png
 map_Pr metalnessMap11.png
-norm normalMap11.png
+bump normalMap11.png
 
 newmtl material100
 Tr 0.0000
@@ -190,7 +190,7 @@ Ke 0 0 0
 map_Kd material100.png
 map_Pm metalnessMap12.png
 map_Pr metalnessMap12.png
-norm normalMap12.png
+bump normalMap12.png
 
 newmtl material97
 Tr 0.0000
@@ -218,7 +218,7 @@ Ke 0 0 0
 map_Kd material106.png
 map_Pm metalnessMap14.png
 map_Pr metalnessMap14.png
-norm normalMap14.png
+bump normalMap14.png
 
 newmtl material105
 Tr 0.0000
@@ -234,7 +234,7 @@ Ke 0 0 0
 map_Kd material105.png
 map_Pm metalnessMap15.png
 map_Pr metalnessMap15.png
-norm normalMap15.png
+bump normalMap15.png
 
 newmtl material102
 Tr 0.0000
@@ -250,7 +250,7 @@ Ke 0 0 0
 map_Kd material102.png
 map_Pm metalnessMap15.png
 map_Pr metalnessMap15.png
-norm normalMap16.png
+bump normalMap16.png
 
 newmtl material103
 Tr 0.0000
@@ -266,7 +266,7 @@ Ke 0 0 0
 map_Kd material103.png
 map_Pm metalnessMap15.png
 map_Pr metalnessMap15.png
-norm normalMap17.png
+bump normalMap17.png
 
 newmtl material107
 Tr 0.0000
@@ -282,7 +282,7 @@ Ke 0 0 0
 map_Kd material107.png
 map_Pm metalnessMap18.png
 map_Pr metalnessMap18.png
-norm normalMap18.png
+bump normalMap18.png
 
 newmtl material108
 Tr 0.0000
@@ -298,7 +298,7 @@ Ke 0 0 0
 map_Kd material108.png
 map_Pm metalnessMap18.png
 map_Pr metalnessMap18.png
-norm normalMap19.png
+bump normalMap19.png
 
 newmtl material110
 Tr 0.0000
@@ -314,7 +314,7 @@ Ke 0 0 0
 map_Kd material110.png
 map_Pm metalnessMap18.png
 map_Pr metalnessMap18.png
-norm normalMap20.png
+bump normalMap20.png
 
 newmtl material104
 Tr 0.0000
@@ -330,7 +330,7 @@ Ke 0 0 0
 map_Kd material104.png
 map_Pm metalnessMap21.png
 map_Pr metalnessMap21.png
-norm normalMap21.png
+bump normalMap21.png
 
 newmtl material101
 Tr 0.0000
@@ -346,7 +346,7 @@ Ke 0 0 0
 map_Kd material101.png
 map_Pm metalnessMap22.png
 map_Pr metalnessMap22.png
-norm normalMap22.png
+bump normalMap22.png
 
 newmtl material109
 Tr 0.0000
@@ -362,7 +362,7 @@ Ke 0 0 0
 map_Kd material109.png
 map_Pm metalnessMap23.png
 map_Pr metalnessMap23.png
-norm normalMap23.png
+bump normalMap23.png
 
 newmtl material111
 Tr 0.0000
@@ -378,7 +378,7 @@ Ke 0 0 0
 map_Kd material111.png
 map_Pm metalnessMap24.png
 map_Pr metalnessMap24.png
-norm normalMap24.png
+bump normalMap24.png
 
 newmtl material112
 Tr 0.0000
@@ -394,4 +394,4 @@ Ke 0 0 0
 map_Kd material112.png
 map_Pm metalnessMap25.png
 map_Pr metalnessMap25.png
-norm normalMap25.png
+bump normalMap25.png

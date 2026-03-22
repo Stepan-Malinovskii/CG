@@ -1,6 +1,7 @@
 #include "LightingUtil.hlsl"
 
 Texture2D gDiffuseMap : register(t0);
+Texture2D gNormalMap : register(t1);
 
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
@@ -78,6 +79,7 @@ VertexOut VS(VertexIn vin)
     vout.PosW = posW.xyz;
     
     vout.NormalW = normalize(mul(vin.NormalL, (float3x3) gWorld));
+    vout.TangentW = float4(normalize(mul(vin.TangentL.xyz, (float3x3) gWorld)), vin.TangentL.w);
 
     vout.PosH = mul(posW, gViewProj);
     
@@ -90,9 +92,26 @@ VertexOut VS(VertexIn vin)
 GBufferOutput PS(VertexOut pin)
 {
     GBufferOutput res;
-    
-    res.Albedo = gDiffuseAlbedo * gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC);
-    res.Normal = float4(normalize(pin.NormalW), 1.0f);
-    
+
+    float4 albedoTex = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC);
+
+    clip(albedoTex.a - 0.1f);
+
+    res.Albedo = gDiffuseAlbedo * albedoTex;
+
+    float3 normalSample = gNormalMap.Sample(gsamAnisotropicWrap, pin.TexC).xyz;
+    float3 normalT = normalSample * 2.0f - 1.0f;
+
+    normalT.xy *= gNormalIntencity;
+
+    float3 N = normalize(pin.NormalW);
+    float3 T = normalize(pin.TangentW.xyz);
+    float3 B = normalize(cross(N, T) * pin.TangentW.w);
+
+    float3x3 TBN = float3x3(T, B, N);
+    float3 normalW = normalize(mul(normalT, TBN));
+
+    res.Normal = float4(normalW, 1.0f);
+
     return res;
 }

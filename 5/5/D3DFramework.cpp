@@ -113,11 +113,11 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_cmdList->SetPipelineState(_psos["gbuffer"].Get());
 	_cmdList->SetGraphicsRootSignature(_rootSignatureGBuffer.Get());
 
-	ID3D12DescriptorHeap* dvs_heaps[] = { _srvDescriptorHeap.Get() };
-	_cmdList->SetDescriptorHeaps(1, dvs_heaps);
+	ID3D12DescriptorHeap* srv_heaps[] = { _srvDescriptorHeap.Get() };
+	_cmdList->SetDescriptorHeaps(1, srv_heaps);
 
 	auto passCB = _currFrameResource->PassCB->Resource();
-	_cmdList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+	_cmdList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
 
 	DrawRenderItems(_cmdList.Get(), _opaqueRitems);
 
@@ -421,19 +421,22 @@ void D3DFramework::UpdateLightSB(const GameTimer& gt)
 
 void D3DFramework::BuildRootSignatureGBuffer()
 {
-	CD3DX12_DESCRIPTOR_RANGE texTable;
-	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+	CD3DX12_DESCRIPTOR_RANGE defTable;
+	defTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); //t0
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[4];
-	slotRootParameter[0].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
-	slotRootParameter[1].InitAsConstantBufferView(0);
-	slotRootParameter[2].InitAsConstantBufferView(1);
-	slotRootParameter[3].InitAsConstantBufferView(2);
+	CD3DX12_DESCRIPTOR_RANGE normTable;
+	normTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); //t1
+
+	CD3DX12_ROOT_PARAMETER slotRootParameter[5];
+	slotRootParameter[0].InitAsDescriptorTable(1, &defTable, D3D12_SHADER_VISIBILITY_PIXEL);
+	slotRootParameter[1].InitAsDescriptorTable(1, &normTable, D3D12_SHADER_VISIBILITY_PIXEL);
+	slotRootParameter[2].InitAsConstantBufferView(0); //b0
+	slotRootParameter[3].InitAsConstantBufferView(1); //b1
+	slotRootParameter[4].InitAsConstantBufferView(2); //b2
 
 	auto staticSamplers = GetStaticSamplers();
 
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4, slotRootParameter, (UINT)staticSamplers.size(),
-		staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(5, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;
@@ -818,9 +821,10 @@ void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std
 	auto objectCB = _currFrameResource->ObjectCB->Resource();
 	auto matCB = _currFrameResource->MaterialCB->Resource();
 
-	for (size_t i = 0; i < ritems.size(); ++i)
+	for (auto ri : ritems)
 	{
-		auto ri = ritems[i];
+		if (!ri || !ri->Mat)
+			continue;
 
 		auto vertexBuffer = ri->Geo->VertexBufferView();
 		cmdList->IASetVertexBuffers(0, 1, &vertexBuffer);
@@ -830,15 +834,28 @@ void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std
 
 		cmdList->IASetPrimitiveTopology(ri->Geo->PrimitiveType);
 
-		CD3DX12_GPU_DESCRIPTOR_HANDLE tex(_srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-		tex.Offset(ri->Mat->DiffuseSrvHeapIndex, _cbvSrvDescriptorSize);
+		int diffuseIndex = ri->Mat->DiffuseSrvHeapIndex;
+		int normalIndex = ri->Mat->NormalSrvHeapIndex;
+
+		if (diffuseIndex < 0)
+			diffuseIndex = 0;
+
+		if (normalIndex < 0)
+			normalIndex = diffuseIndex;
+
+		CD3DX12_GPU_DESCRIPTOR_HANDLE diffuseHandle(_srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+		diffuseHandle.Offset(diffuseIndex, _cbvSrvDescriptorSize);
+
+		CD3DX12_GPU_DESCRIPTOR_HANDLE normalHandle(_srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+		normalHandle.Offset(normalIndex, _cbvSrvDescriptorSize);
 
 		D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
 		D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
 
-		cmdList->SetGraphicsRootDescriptorTable(0, tex);
-		cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
-		cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+		cmdList->SetGraphicsRootDescriptorTable(0, diffuseHandle);
+		cmdList->SetGraphicsRootDescriptorTable(1, normalHandle);
+		cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
+		cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
 
 		cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 	}
@@ -965,36 +982,39 @@ void D3DFramework::ParseMesh(const ModelParse::MeshInfo& meshData)
 void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 {
 	int srvIndex = 0;
+
 	for (auto& kv : meshData.Materials)
 	{
 		auto& mi = kv.second;
-		if (mi.DiffuseTextureName.empty()) { continue; }
 
-		std::string texName = mi.DiffuseTextureName;
-		if (_textures.count(texName) != 0) { continue; }
+		std::vector<std::string> texturesToLoad;
 
-		auto tex = std::make_unique<Texture>();
-		tex->Name = texName;
-		tex->Filename = L"C:/Users/Stepan/Desktop/CG/5/Textures/" + std::wstring(texName.begin(), texName.end());
+		if (!mi.DiffuseTextureName.empty())
+			texturesToLoad.push_back(mi.DiffuseTextureName);
 
-		ResourceUploadBatch resourceUpload(_d3dDevice.Get());
-		resourceUpload.Begin();
+		if (!mi.NormalTextureName.empty())
+			texturesToLoad.push_back(mi.NormalTextureName);
 
-		ThrowIfFailed(DirectX::CreateWICTextureFromFile
-		(
-			_d3dDevice.Get(),
-			resourceUpload,
-			tex->Filename.c_str(),
-			tex->Resource.ReleaseAndGetAddressOf(),
-			true
-		));
+		for (auto& texName : texturesToLoad)
+		{
+			if (_textures.count(texName) != 0) { continue; }
 
-		auto uploadResourcesFinished = resourceUpload.End(_cmdQueue.Get());
-		uploadResourcesFinished.wait();
+			auto tex = std::make_unique<Texture>();
+			tex->Name = texName;
+			tex->Filename = L"C:/Users/Stepan/Desktop/CG/5/Textures/" + std::wstring(texName.begin(), texName.end());
 
-		tex->SrvHeapIndex = srvIndex++;
+			ResourceUploadBatch resourceUpload(_d3dDevice.Get());
+			resourceUpload.Begin();
 
-		_textures[texName] = std::move(tex);
+			ThrowIfFailed(DirectX::CreateWICTextureFromFile(_d3dDevice.Get(), resourceUpload, tex->Filename.c_str(), tex->Resource.ReleaseAndGetAddressOf(), true));
+
+			auto uploadResourcesFinished = resourceUpload.End(_cmdQueue.Get());
+			uploadResourcesFinished.wait();
+
+			tex->SrvHeapIndex = srvIndex++;
+
+			_textures[texName] = std::move(tex);
+		}
 	}
 }
 
@@ -1016,8 +1036,23 @@ void D3DFramework::ParseMaterials(const ModelParse::MeshInfo& meshData)
 
 		data.DiffuseAlbedo = XMFLOAT4(mi.DiffuseColor.x, mi.DiffuseColor.y, mi.DiffuseColor.z, mi.DiffuseColor.w);
 
-		if (_textures.count(mi.DiffuseTextureName)) { mat->DiffuseSrvHeapIndex = _textures[mi.DiffuseTextureName]->SrvHeapIndex; }
-		else { mat->DiffuseSrvHeapIndex = -1; }
+		if (_textures.count(mi.DiffuseTextureName))
+		{ 
+			mat->DiffuseSrvHeapIndex = _textures[mi.DiffuseTextureName]->SrvHeapIndex;
+		}
+		else
+		{ 
+			mat->DiffuseSrvHeapIndex = -1;
+		}
+
+		if (_textures.count(mi.NormalTextureName))
+		{
+			mat->NormalSrvHeapIndex = _textures[mi.NormalTextureName]->SrvHeapIndex;
+		}
+		else
+		{
+			mat->NormalSrvHeapIndex = -1;
+		}
 
 		data.FresnelR0 = { 0.01f, 0.01f, 0.01f };
 		data.Roughness = 0.3f;
