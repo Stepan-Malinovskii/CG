@@ -26,6 +26,7 @@ bool D3DFramework::Initialize()
 	_cbvSrvDescriptorSize = _d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
 	LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/Model.obj");
+	LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/Model_1.obj");
 	CreateLight();
 
 	_gBuffer = std::make_unique<GBuffer>(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT);
@@ -747,13 +748,16 @@ void D3DFramework::LoadModel(std::string path)
 
 void D3DFramework::CreateSceneObjects()
 {
-	if (_models.count("LoadedModel") == 0) { return; }
+	if (_models.size() == 0) { return; }
 
-	auto sceneObj = std::make_unique<SceneObject>();
-	sceneObj->ModelData = _models["LoadedModel"].get();
-	XMStoreFloat4x4(&sceneObj->World, XMMatrixIdentity());
+	for (auto& model : _models)
+	{
+		auto sceneObj = std::make_unique<SceneObject>();
+		sceneObj->ModelData =model.second.get();
+		XMStoreFloat4x4(&sceneObj->World, XMMatrixIdentity());
 
-	_sceneObjects.push_back(std::move(sceneObj));
+		_sceneObjects.push_back(std::move(sceneObj));
+	}
 }
 
 void D3DFramework::BuildFrameResources()
@@ -915,7 +919,7 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> D3DFramework::GetStaticSamplers
 void D3DFramework::ParseMesh(const ModelParse::MeshInfo& meshData)
 {
 	auto geo = std::make_unique<MeshGeometry>();
-	geo->Name = "LoadedModel";
+	geo->Name = meshData.MeshName;
 
 	UINT vbByteSize = (UINT)meshData.Vertices.size() * sizeof(Vertex);
 	UINT ibByteSize = (UINT)meshData.Indices32.size() * sizeof(uint32_t);
@@ -962,7 +966,7 @@ void D3DFramework::ParseMesh(const ModelParse::MeshInfo& meshData)
 	_geometries[geo->Name] = std::move(geo);
 
 	auto model = std::make_unique<Model>();
-	model->Mesh = _geometries["LoadedModel"].get();
+	model->Mesh = _geometries[meshData.MeshName].get();
 
 	for (const auto& sub : meshData.Submeshes)
 	{
@@ -972,7 +976,7 @@ void D3DFramework::ParseMesh(const ModelParse::MeshInfo& meshData)
 		model->Parts.push_back(std::move(p));
 	}
 
-	_models["LoadedModel"] = std::move(model);
+	_models[meshData.MeshName] = std::move(model);
 }
 
 void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)

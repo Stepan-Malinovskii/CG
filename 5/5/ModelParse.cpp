@@ -221,6 +221,7 @@ ModelParse::MeshInfo ModelParse::LoadOBJ(const std::string& path)
 
     const aiScene* scene = aiImportFile(path.c_str(), aiProcessPreset_TargetRealtime_MaxQuality | aiProcess_Triangulate);
 
+    meshInfo.MeshName = path;
     ParseNodeHelper(scene->mRootNode, scene, meshInfo);
 
     return meshInfo;
