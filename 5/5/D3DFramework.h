@@ -101,8 +101,6 @@ private:
     void BuildRenderItems();
     void BuildFrameResources();
 
-    void BuildPSO(std::string psoName, std::string vsName, std::string psName);
-
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
@@ -162,7 +160,6 @@ private:
 
 private:
     bool _isDebugMode = false;
-
 };
 
 #endif // !D3D_FRAMEWORK_HPP

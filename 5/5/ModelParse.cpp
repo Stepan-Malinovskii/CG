@@ -79,6 +79,15 @@ namespace
             mi.NormalTextureName = "";
         }
 
+        if (mat->GetTexture(aiTextureType_DISPLACEMENT, 0, &texPath) == AI_SUCCESS)
+        {
+            mi.DisplacementTextureName = ExtractTextureFilename(texPath);
+        }
+        else
+        {
+            mi.DisplacementTextureName = "";
+        }
+
         return mi;
     }
 

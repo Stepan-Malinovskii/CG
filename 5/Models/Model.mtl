@@ -132,17 +132,16 @@ newmtl material95
 Tr 0.0000
 Tf 1.0000 1.0000 1.0000
 illum 1
-Pm 1
+Pm 0
 Pr 1
 Pds 1
 Pl 1
 Ka 1 1 1
-Kd 0.5879999995231628 0.5879999995231628 0.5879999995231628
+Kd 1.0 1.0 1.0
 Ke 0 0 0
-map_Kd material95.png
-map_Pm metalnessMap9.png
-map_Pr metalnessMap9.png
-bump normalMap9.png
+map_Kd Floor_Color.png
+bump Floor_Normal.png
+disp Floor_Disp.png
 
 newmtl material99
 Tr 0.0000
@@ -384,14 +383,13 @@ newmtl material112
 Tr 0.0000
 Tf 1.0000 1.0000 1.0000
 illum 1
-Pm 1
+Pm 0
 Pr 1
 Pds 1
 Pl 1
 Ka 1 1 1
-Kd 0.5879999995231628 0.5879999995231628 0.5879999995231628
+Kd 1.0 1.0 1.0
 Ke 0 0 0
-map_Kd material112.png
-map_Pm metalnessMap25.png
-map_Pr metalnessMap25.png
-bump normalMap25.png
+map_Kd Ceil_Color.png
+bump Ceil_Normal.png
+disp Ceil_Disp.png

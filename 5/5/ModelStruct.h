@@ -45,7 +45,6 @@ struct MeshGeometry
 	UINT VertexByteStride = 0;
 	UINT VertexBufferByteSize = 0;
 	DXGI_FORMAT IndexFormat = DXGI_FORMAT_R32_UINT;
-	D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	UINT IndexBufferByteSize = 0;
 
 	std::unordered_map<std::string, SubmeshGeometry> DrawArgs;
@@ -112,7 +111,7 @@ struct MaterialConstants
 	XMFLOAT3 FresnelR0 = { 0.01f, 0.01f, 0.01f };
 	float Roughness = 0.25f;
 	XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
-	float NormalIntencity = 1.0f;
+	float NormalIntencity = 2.0f;
 };
 
 struct Material
@@ -122,8 +121,8 @@ struct Material
 	int MatCBIndex = -1;
 
 	int DiffuseSrvHeapIndex = -1;
-
 	int NormalSrvHeapIndex = -1;
+	int DisplacementSrvHeapIndex = -1;
 
 	int NumFramesDirty = 3; //NUM_FRAME_RECOURCES
 

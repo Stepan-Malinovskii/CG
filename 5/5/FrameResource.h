@@ -42,7 +42,35 @@ struct PassConstants
 
     int DebugMode = 0;
     int DebugViewIndex = 0;
-    int Pad[2];
+    int Pad[2] = { 0, 0 };
+};
+
+struct TessellationConstant
+{
+    TessellationConstant()
+    {
+        TessellationFactor = 8.0f;
+        MaxTessellationDistance = 35.0f;
+        Pad[0] = 0.0f; Pad[1] = 0.0f;
+    }
+
+    float TessellationFactor = 16.0f;
+    float MaxTessellationDistance = 50.0f;
+    float Pad[2] = { 0.0f, 0.0f };
+};
+
+struct DisplacementConstant
+{
+    DisplacementConstant()
+    {
+        DisplacementScale = 0.05f;
+        DisplacementBias = -0.02f;
+        Pad[0] = 0.0f; Pad[1] = 0.0f;
+    }
+
+    float DisplacementScale = 0.05f;
+    float DisplacementBias = -0.02f;
+    float Pad[2] = { 0.0f, 0.0f };
 };
 
 struct FrameResource
@@ -56,11 +84,14 @@ public:
 
     ComPtr<ID3D12CommandAllocator> CmdListAlloc;
 
+    std::unique_ptr<UploadBuffer<ObjectConstants>> ObjectCB = nullptr;
     std::unique_ptr<UploadBuffer<PassConstants>> PassCB = nullptr;
     std::unique_ptr<UploadBuffer<MaterialConstants>> MaterialCB = nullptr;
-    std::unique_ptr<UploadBuffer<ObjectConstants>> ObjectCB = nullptr;
     std::unique_ptr<UploadBuffer<LightConstants>> LightSB = nullptr;
     std::unique_ptr<UploadBuffer<LightInfoConstants>> LightInfoCB = nullptr;
+
+    std::unique_ptr<UploadBuffer<TessellationConstant>> TessellationCB = nullptr;
+    std::unique_ptr<UploadBuffer<DisplacementConstant>> DisplacementCB = nullptr;
 
     UINT64 Fence = 0;
 };

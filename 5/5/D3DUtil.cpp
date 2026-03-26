@@ -48,10 +48,9 @@ ComPtr<ID3DBlob> D3DUtil::CompileShader(const std::wstring& filename, const D3D_
 	ComPtr<ID3DBlob> errors;
 	hr = D3DCompileFromFile(filename.c_str(), defines, D3D_COMPILE_STANDARD_FILE_INCLUDE, entrypoint.c_str(), target.c_str(), compileFlags, 0, &byteCode, &errors);
 
-	if (errors != nullptr)
+	if (errors)
 	{
-		std::string errorMsg = static_cast<char*>(errors->GetBufferPointer());
-		std::cout << "Shader compile error:\n" << errorMsg << std::endl;
+		OutputDebugStringA((char*)errors->GetBufferPointer());
 	}
 	
 	ThrowIfFailed(hr);

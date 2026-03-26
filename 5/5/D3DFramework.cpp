@@ -24,7 +24,7 @@ bool D3DFramework::Initialize()
 	if (!BaseD3DApp::Initialize()) { return false; }
 	ThrowIfFailed(_cmdList->Reset(_directCmdListAlloc.Get(), nullptr));
 	_cbvSrvDescriptorSize = _d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-	
+
 	LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/Model.obj");
 	CreateLight();
 
@@ -40,7 +40,7 @@ bool D3DFramework::Initialize()
 	BuildRootSignatureLightPass();
 	BuildDescriptorHeaps();
 	BuildShadersAndInputLayout();
-	
+
 	BuildGBufferPSO();
 	BuildLightPassPSO();
 
@@ -101,7 +101,7 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_gBuffer->TransitToOpaqueRenderingState(_cmdList.Get());
 	_gBuffer->ClearView(_cmdList.Get());
 
-	std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 2> rtvs = 
+	std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 2> rtvs =
 	{
 		_gBuffer->Textures[(UINT)GBufferIndex::Albedo].RTV,
 		_gBuffer->Textures[(UINT)GBufferIndex::Normal].RTV
@@ -117,8 +117,15 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_cmdList->SetDescriptorHeaps(1, srv_heaps);
 
 	auto passCB = _currFrameResource->PassCB->Resource();
-	_cmdList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+	_cmdList->SetGraphicsRootConstantBufferView(4, passCB->GetGPUVirtualAddress());
 
+	auto tessCB = _currFrameResource->TessellationCB->Resource();
+	_cmdList->SetGraphicsRootConstantBufferView(6, tessCB->GetGPUVirtualAddress());
+
+	auto dispCB = _currFrameResource->DisplacementCB->Resource();
+	_cmdList->SetGraphicsRootConstantBufferView(7, dispCB->GetGPUVirtualAddress());
+
+	_cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
 	DrawRenderItems(_cmdList.Get(), _opaqueRitems);
 
 	_gBuffer->TransitToLightRenderingState(_cmdList.Get());
@@ -173,9 +180,7 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 			_currFrameResource->PassCB->CopyData(i, debugCB);
 
-			D3D12_GPU_VIRTUAL_ADDRESS passAddr =
-				_currFrameResource->PassCB->Resource()->GetGPUVirtualAddress()
-				+ i * passElementSize;
+			D3D12_GPU_VIRTUAL_ADDRESS passAddr = _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress() + i * passElementSize;
 
 			_cmdList->SetGraphicsRootConstantBufferView(1, passAddr);
 			_cmdList->RSSetScissorRects(1, &scissorRects[i]);
@@ -190,10 +195,7 @@ void D3DFramework::Draw(const GameTimer& gt)
 		_mainPassCB.DebugMode = 0;
 		_currFrameResource->PassCB->CopyData(0, _mainPassCB);
 
-		_cmdList->SetGraphicsRootConstantBufferView(
-			1,
-			_currFrameResource->PassCB->Resource()->GetGPUVirtualAddress()
-		);
+		_cmdList->SetGraphicsRootConstantBufferView(1, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
 
 		_cmdList->DrawInstanced(3, 1, 0, 0);
 	}
@@ -300,18 +302,18 @@ void D3DFramework::UpdateCamera(const GameTimer& gt)
 
 void D3DFramework::AnimateMaterials(const GameTimer& gt)
 {
-	float t = gt.TotalTime();
+	//float t = gt.TotalTime();
 
-	for (auto& kv : _materials)
-	{
-		Material* mat = kv.second.get();
+	//for (auto& kv : _materials)
+	//{
+	//	Material* mat = kv.second.get();
 
-		float pulse = 0.5f * sinf(2.0f * t) + 0.5f;
-		mat->Data.MatTransform._11 = 0.8f + 0.2f * pulse;
-		mat->Data.MatTransform._22 = mat->Data.MatTransform._11;
+	//	float pulse = 0.5f * sinf(2.0f * t) + 0.5f;
+	//	mat->Data.MatTransform._11 = 0.8f + 0.2f * pulse;
+	//	mat->Data.MatTransform._22 = mat->Data.MatTransform._11;
 
-		mat->NumFramesDirty = NUM_FRAME_RECOURCES;
-	}
+	//	mat->NumFramesDirty = NUM_FRAME_RECOURCES;
+	//}
 }
 
 void D3DFramework::AnimateLight(const GameTimer& gt)
@@ -392,6 +394,14 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 
 	auto currPassCB = _currFrameResource->PassCB.get();
 	currPassCB->CopyData(0, _mainPassCB);
+
+	TessellationConstant tess = TessellationConstant();
+	auto tessCB = _currFrameResource->TessellationCB.get();
+	tessCB->CopyData(0, tess);
+
+	DisplacementConstant disp = DisplacementConstant();
+	auto dispCB = _currFrameResource->DisplacementCB.get();
+	dispCB->CopyData(0, disp);
 }
 
 void D3DFramework::UpdateLightSB(const GameTimer& gt)
@@ -427,16 +437,23 @@ void D3DFramework::BuildRootSignatureGBuffer()
 	CD3DX12_DESCRIPTOR_RANGE normTable;
 	normTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); //t1
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[5];
-	slotRootParameter[0].InitAsDescriptorTable(1, &defTable, D3D12_SHADER_VISIBILITY_PIXEL);
-	slotRootParameter[1].InitAsDescriptorTable(1, &normTable, D3D12_SHADER_VISIBILITY_PIXEL);
-	slotRootParameter[2].InitAsConstantBufferView(0); //b0
-	slotRootParameter[3].InitAsConstantBufferView(1); //b1
-	slotRootParameter[4].InitAsConstantBufferView(2); //b2
+	CD3DX12_DESCRIPTOR_RANGE dispTable;
+	dispTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2); //t2
+
+	CD3DX12_ROOT_PARAMETER slotRootParameter[8];
+	slotRootParameter[0].InitAsDescriptorTable(1, &defTable, D3D12_SHADER_VISIBILITY_ALL);
+	slotRootParameter[1].InitAsDescriptorTable(1, &normTable, D3D12_SHADER_VISIBILITY_ALL);
+	slotRootParameter[2].InitAsDescriptorTable(1, &dispTable, D3D12_SHADER_VISIBILITY_ALL);
+
+	slotRootParameter[3].InitAsConstantBufferView(0); //b0
+	slotRootParameter[4].InitAsConstantBufferView(1); //b1
+	slotRootParameter[5].InitAsConstantBufferView(2); //b2
+	slotRootParameter[6].InitAsConstantBufferView(3); //b3
+	slotRootParameter[7].InitAsConstantBufferView(4); //b4
 
 	auto staticSamplers = GetStaticSamplers();
 
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(5, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(8, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;
@@ -551,22 +568,32 @@ void D3DFramework::BuildGBufferPSO()
 	psoDesc.InputLayout = { _inputLayout.data(), (UINT)_inputLayout.size() };
 	psoDesc.pRootSignature = _rootSignatureGBuffer.Get();
 
-	psoDesc.VS = 
-	{ 
+	psoDesc.VS =
+	{
 		reinterpret_cast<BYTE*>(_shaders["gbufferVS"]->GetBufferPointer()),
-		_shaders["gbufferVS"]->GetBufferSize() 
+		_shaders["gbufferVS"]->GetBufferSize()
 	};
-	psoDesc.PS = 
-	{ 
+	psoDesc.HS =
+	{
+		reinterpret_cast<BYTE*>(_shaders["gbufferHS"]->GetBufferPointer()),
+		_shaders["gbufferHS"]->GetBufferSize()
+	};
+	psoDesc.DS =
+	{
+		reinterpret_cast<BYTE*>(_shaders["gbufferDS"]->GetBufferPointer()),
+		_shaders["gbufferDS"]->GetBufferSize()
+	};
+	psoDesc.PS =
+	{
 		reinterpret_cast<BYTE*>(_shaders["gbufferPS"]->GetBufferPointer()),
-		_shaders["gbufferPS"]->GetBufferSize() 
+		_shaders["gbufferPS"]->GetBufferSize()
 	};
 
 	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
 	psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 	psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 
-	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
 
 	psoDesc.SampleMask = UINT_MAX;
 	psoDesc.SampleDesc.Count = _4xMsaaState ? 4 : 1;
@@ -632,10 +659,11 @@ void D3DFramework::BuildLightPassPSO()
 
 void D3DFramework::BuildShadersAndInputLayout()
 {
-	const D3D_SHADER_MACRO alphaTestDefines[] = { "ALPHA_TEST", "1", NULL, NULL };
-
 	_shaders["gbufferVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
 	_shaders["gbufferPS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "PS", "ps_5_1");
+
+	_shaders["gbufferHS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBufferHS.hlsl", nullptr, "HS", "hs_5_1");
+	_shaders["gbufferDS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBufferDS.hlsl", nullptr, "DS", "ds_5_1");
 
 	_shaders["lightVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "VS", "vs_5_1");
 	_shaders["lightPS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "PS", "ps_5_1");
@@ -728,38 +756,6 @@ void D3DFramework::CreateSceneObjects()
 	_sceneObjects.push_back(std::move(sceneObj));
 }
 
-void D3DFramework::BuildPSO(std::string psoName, std::string vsName, std::string psName)
-{
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
-
-	ZeroMemory(&opaquePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-	opaquePsoDesc.InputLayout = { _inputLayout.data(), (UINT)_inputLayout.size() };
-	opaquePsoDesc.pRootSignature = _rootSignatureGBuffer.Get();
-	opaquePsoDesc.VS =
-	{
-		reinterpret_cast<BYTE*>(_shaders[vsName]->GetBufferPointer()),
-		_shaders[vsName]->GetBufferSize()
-	};
-	opaquePsoDesc.PS =
-	{
-		reinterpret_cast<BYTE*>(_shaders[psName]->GetBufferPointer()),
-		_shaders[psName]->GetBufferSize()
-	};
-
-	opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.SampleMask = UINT_MAX;
-	opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	opaquePsoDesc.NumRenderTargets = 1;
-	opaquePsoDesc.RTVFormats[0] = _backBufferFormat;
-	opaquePsoDesc.SampleDesc.Count = _4xMsaaState ? 4 : 1;
-	opaquePsoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
-	opaquePsoDesc.DSVFormat = _depthStencilFormat;
-
-	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&_psos[psoName])));
-}
-
 void D3DFramework::BuildFrameResources()
 {
 	for (int i = 0; i < NUM_FRAME_RECOURCES; ++i)
@@ -823,8 +819,7 @@ void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std
 
 	for (auto ri : ritems)
 	{
-		if (!ri || !ri->Mat)
-			continue;
+		if (!ri || !ri->Mat) { continue; }
 
 		auto vertexBuffer = ri->Geo->VertexBufferView();
 		cmdList->IASetVertexBuffers(0, 1, &vertexBuffer);
@@ -832,16 +827,13 @@ void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std
 		auto indexBuffer = ri->Geo->IndexBufferView();
 		cmdList->IASetIndexBuffer(&indexBuffer);
 
-		cmdList->IASetPrimitiveTopology(ri->Geo->PrimitiveType);
-
 		int diffuseIndex = ri->Mat->DiffuseSrvHeapIndex;
 		int normalIndex = ri->Mat->NormalSrvHeapIndex;
+		int dispIndex = ri->Mat->DisplacementSrvHeapIndex;
 
-		if (diffuseIndex < 0)
-			diffuseIndex = 0;
-
-		if (normalIndex < 0)
-			normalIndex = diffuseIndex;
+		if (diffuseIndex < 0) { diffuseIndex = 0; }
+		if (normalIndex < 0) { normalIndex = 0; }
+		if (dispIndex < 0) { dispIndex = 0; }
 
 		CD3DX12_GPU_DESCRIPTOR_HANDLE diffuseHandle(_srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 		diffuseHandle.Offset(diffuseIndex, _cbvSrvDescriptorSize);
@@ -849,13 +841,18 @@ void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std
 		CD3DX12_GPU_DESCRIPTOR_HANDLE normalHandle(_srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 		normalHandle.Offset(normalIndex, _cbvSrvDescriptorSize);
 
+		CD3DX12_GPU_DESCRIPTOR_HANDLE dispHandle(_srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+		dispHandle.Offset(dispIndex, _cbvSrvDescriptorSize);
+
 		D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
 		D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
 
 		cmdList->SetGraphicsRootDescriptorTable(0, diffuseHandle);
 		cmdList->SetGraphicsRootDescriptorTable(1, normalHandle);
-		cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
-		cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
+		cmdList->SetGraphicsRootDescriptorTable(2, dispHandle);
+
+		cmdList->SetGraphicsRootConstantBufferView(3, objCBAddress);
+		cmdList->SetGraphicsRootConstantBufferView(5, matCBAddress);
 
 		cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 	}
@@ -951,7 +948,6 @@ void D3DFramework::ParseMesh(const ModelParse::MeshInfo& meshData)
 	geo->VertexBufferByteSize = vbByteSize;
 	geo->IndexBufferByteSize = ibByteSize;
 	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
-	geo->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
 	for (const auto& sub : meshData.Submeshes)
 	{
@@ -981,7 +977,36 @@ void D3DFramework::ParseMesh(const ModelParse::MeshInfo& meshData)
 
 void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 {
+	const std::string DEFAULT_TEXTURE[3] =
+	{
+		"T_DEFAULT_COLOR.png",
+		"T_DEFAULT_NORMAL.png",
+		"T_DEFAULT_DISPLACEMENT.png"
+	};
+
 	int srvIndex = 0;
+
+	if (_textures.size() == 0)
+	{
+		for (auto& texName : DEFAULT_TEXTURE)
+		{
+			auto tex = std::make_unique<Texture>();
+			tex->Name = texName;
+			tex->Filename = L"C:/Users/Stepan/Desktop/CG/5/DefaultTextures/" + std::wstring(texName.begin(), texName.end());
+
+			ResourceUploadBatch resourceUpload(_d3dDevice.Get());
+			resourceUpload.Begin();
+
+			ThrowIfFailed(DirectX::CreateWICTextureFromFile(_d3dDevice.Get(), resourceUpload, tex->Filename.c_str(), tex->Resource.ReleaseAndGetAddressOf(), true));
+
+			auto uploadResourcesFinished = resourceUpload.End(_cmdQueue.Get());
+			uploadResourcesFinished.wait();
+
+			tex->SrvHeapIndex = srvIndex++;
+
+			_textures[texName] = std::move(tex);
+		}
+	}
 
 	for (auto& kv : meshData.Materials)
 	{
@@ -994,6 +1019,9 @@ void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 
 		if (!mi.NormalTextureName.empty())
 			texturesToLoad.push_back(mi.NormalTextureName);
+
+		if (!mi.DisplacementTextureName.empty())
+			texturesToLoad.push_back(mi.DisplacementTextureName);
 
 		for (auto& texName : texturesToLoad)
 		{
@@ -1037,12 +1065,12 @@ void D3DFramework::ParseMaterials(const ModelParse::MeshInfo& meshData)
 		data.DiffuseAlbedo = XMFLOAT4(mi.DiffuseColor.x, mi.DiffuseColor.y, mi.DiffuseColor.z, mi.DiffuseColor.w);
 
 		if (_textures.count(mi.DiffuseTextureName))
-		{ 
+		{
 			mat->DiffuseSrvHeapIndex = _textures[mi.DiffuseTextureName]->SrvHeapIndex;
 		}
 		else
-		{ 
-			mat->DiffuseSrvHeapIndex = -1;
+		{
+			mat->DiffuseSrvHeapIndex = 0;
 		}
 
 		if (_textures.count(mi.NormalTextureName))
@@ -1051,7 +1079,16 @@ void D3DFramework::ParseMaterials(const ModelParse::MeshInfo& meshData)
 		}
 		else
 		{
-			mat->NormalSrvHeapIndex = -1;
+			mat->NormalSrvHeapIndex = 1;
+		}
+
+		if (_textures.count(mi.DisplacementTextureName))
+		{
+			mat->DisplacementSrvHeapIndex = _textures[mi.DisplacementTextureName]->SrvHeapIndex;
+		}
+		else
+		{
+			mat->DisplacementSrvHeapIndex = 2;
 		}
 
 		data.FresnelR0 = { 0.01f, 0.01f, 0.01f };
