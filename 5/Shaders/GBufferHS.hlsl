@@ -25,8 +25,8 @@ float TessEdge(float3 v0, float3 v1)
     float3 mid = 0.5f * (v0 + v1);
     float dist = distance(mid, gEyePosW);
 
-    float t = saturate(dist / gMaxTessellationDistance);
-    float tess = lerp(gTessellationFactor, 1.0f, t);
+    float t = saturate(dist / min(gMaxTessellationDistance, g_MaxTessellationDistance));
+    float tess = lerp(min(gTessellationFactor, gMaxTessellationFactor), 1.0f, t);
 
     return max(1.0f, tess);
 }

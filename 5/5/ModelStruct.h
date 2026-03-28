@@ -107,11 +107,15 @@ struct LightInfoConstants
 
 struct MaterialConstants
 {
+	XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
+
 	XMFLOAT4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };
 	XMFLOAT3 FresnelR0 = { 0.01f, 0.01f, 0.01f };
 	float Roughness = 0.25f;
-	XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
 	float NormalIntencity = 2.0f;
+
+	float MaxTessellationFactor = 1.0f;
+	float MaxTessellationDistance = 0.0f;
 };
 
 struct Material

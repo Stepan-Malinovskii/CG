@@ -25,9 +25,9 @@ bool D3DFramework::Initialize()
 	ThrowIfFailed(_cmdList->Reset(_directCmdListAlloc.Get(), nullptr));
 	_cbvSrvDescriptorSize = _d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-	//LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/Model.obj");
-	//LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/Model_1.obj");
-	LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/DispTest.obj");
+	LoadModel("C:/Users/HUAWEI/Desktop/CG/5/Models/Model.obj");
+	LoadModel("C:/Users/HUAWEI/Desktop/CG/5/Models/Model_1.obj");
+	//LoadModel("C:/Users/HUAWEI/Desktop/CG/5/Models/DispTest.obj");
 	CreateLight();
 
 	_gBuffer = std::make_unique<GBuffer>(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT);
@@ -592,6 +592,7 @@ void D3DFramework::BuildGBufferPSO()
 	};
 
 	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
 	psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 	psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 
@@ -661,14 +662,14 @@ void D3DFramework::BuildLightPassPSO()
 
 void D3DFramework::BuildShadersAndInputLayout()
 {
-	_shaders["gbufferVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
-	_shaders["gbufferPS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "PS", "ps_5_1");
+	_shaders["gbufferVS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["gbufferPS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "PS", "ps_5_1");
 
-	_shaders["gbufferHS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBufferHS.hlsl", nullptr, "HS", "hs_5_1");
-	_shaders["gbufferDS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBufferDS.hlsl", nullptr, "DS", "ds_5_1");
+	_shaders["gbufferHS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/GBufferHS.hlsl", nullptr, "HS", "hs_5_1");
+	_shaders["gbufferDS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/GBufferDS.hlsl", nullptr, "DS", "ds_5_1");
 
-	_shaders["lightVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "VS", "vs_5_1");
-	_shaders["lightPS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "PS", "ps_5_1");
+	_shaders["lightVS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["lightPS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "PS", "ps_5_1");
 
 	_inputLayout =
 	{
@@ -1024,7 +1025,7 @@ void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 		{
 			auto tex = std::make_unique<Texture>();
 			tex->Name = texName;
-			tex->Filename = L"C:/Users/Stepan/Desktop/CG/5/DefaultTextures/" + std::wstring(texName.begin(), texName.end());
+			tex->Filename = L"C:/Users/HUAWEI/Desktop/CG/5/DefaultTextures/" + std::wstring(texName.begin(), texName.end());
 
 			ResourceUploadBatch resourceUpload(_d3dDevice.Get());
 			resourceUpload.Begin();
@@ -1061,7 +1062,7 @@ void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 
 			auto tex = std::make_unique<Texture>();
 			tex->Name = texName;
-			tex->Filename = L"C:/Users/Stepan/Desktop/CG/5/Textures/" + std::wstring(texName.begin(), texName.end());
+			tex->Filename = L"C:/Users/HUAWEI/Desktop/CG/5/Textures/" + std::wstring(texName.begin(), texName.end());
 
 			ResourceUploadBatch resourceUpload(_d3dDevice.Get());
 			resourceUpload.Begin();
@@ -1125,6 +1126,17 @@ void D3DFramework::ParseMaterials(const ModelParse::MeshInfo& meshData)
 
 		data.FresnelR0 = { 0.01f, 0.01f, 0.01f };
 		data.Roughness = 0.3f;
+
+		if (mat->Name == "Mat")
+		{
+			data.MaxTessellationFactor = 4.0f;
+			data.MaxTessellationDistance = 15.0f;
+		}
+		else if (mat->Name == "Mat.1")
+		{
+			data.MaxTessellationFactor = 1.0f;
+			data.MaxTessellationDistance = 150.0f;
+		}
 
 		mat->Data = std::move(data);
 		_materials[matName] = std::move(mat);
