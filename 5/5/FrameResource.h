@@ -63,8 +63,8 @@ struct DisplacementConstant
 {
     DisplacementConstant()
     {
-        DisplacementScale = 0.2f;
-        DisplacementBias = -0.02f;
+        DisplacementScale = 0.1f;
+        DisplacementBias = -0.025f;
         Pad[0] = 0.0f; Pad[1] = 0.0f;
     }
 

@@ -689,6 +689,33 @@ void D3DFramework::CreateLight()
 			return dis(gen);
 		};
 
+	{
+		Light dirLight = {};
+
+		dirLight.Data.Position = { 0.f, 0.f, 0.f };
+
+		XMFLOAT3 dir = { -0.5f, -1.f, 0.3f };
+		XMStoreFloat3(&dir, XMVector3Normalize(XMLoadFloat3(&dir)));
+		dirLight.Data.Direction = dir;
+
+		dirLight.Data.Strength = { 1.0f, 1.0f, 0.9f };
+
+		dirLight.Data.FalloffStart = 0.f;
+		dirLight.Data.FalloffEnd = 0.f;
+		dirLight.Data.SpotPower = 0.f;
+
+		dirLight.Data.LightType = static_cast<int>(LightType::Directional);
+		dirLight.Data.Pad[0] = 0;
+		dirLight.Data.Pad[1] = 0;
+		dirLight.Data.Pad[2] = 0;
+
+		dirLight.IsActive = true;
+		dirLight.NumFramesDirty = NUM_FRAME_RECOURCES;
+		dirLight.LightIndex = (int)_lights.size();
+
+		_lights.push_back(dirLight);
+	}
+
 	for (int i = 0; i < LIGHT_COUNT; ++i)
 	{
 		float r = RandomFloat(0, 1);

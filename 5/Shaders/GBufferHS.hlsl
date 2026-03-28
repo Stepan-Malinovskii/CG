@@ -7,7 +7,7 @@ HS_CONSTANT_DATA_OUTPUT ConstantsHS(InputPatch<VertexOut, 3> patch, uint PatchID
 [outputtopology("triangle_cw")]
 [outputcontrolpoints(3)]
 [patchconstantfunc("ConstantsHS")]
-[maxtessfactor(7.0f)]
+[maxtessfactor(16.0f)]
 HS_CONTROL_POINT_OUTPUT HS(InputPatch<VertexOut, 3> inputPatch, uint uCPID : SV_OutputControlPointID)
 {
     HS_CONTROL_POINT_OUTPUT Out;
@@ -43,6 +43,6 @@ HS_CONSTANT_DATA_OUTPUT ConstantsHS(InputPatch<VertexOut, 3> p, uint pid : SV_Pr
     Out.Edges[1] = e1;
     Out.Edges[2] = e2;
     Out.Inside = (e0 + e1 + e2) / 3.0f;
-
+    
     return Out;
 }
