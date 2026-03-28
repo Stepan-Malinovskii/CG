@@ -49,8 +49,8 @@ struct TessellationConstant
 {
     TessellationConstant()
     {
-        TessellationFactor = 8.0f;
-        MaxTessellationDistance = 35.0f;
+        TessellationFactor = 16.0f;
+        MaxTessellationDistance = 100.0f;
         Pad[0] = 0.0f; Pad[1] = 0.0f;
     }
 
@@ -63,8 +63,8 @@ struct DisplacementConstant
 {
     DisplacementConstant()
     {
-        DisplacementScale = 0.1f;
-        DisplacementBias = -0.025f;
+        DisplacementScale = 1.0f;
+        DisplacementBias = -0.1f;
         Pad[0] = 0.0f; Pad[1] = 0.0f;
     }
 

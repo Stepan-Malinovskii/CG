@@ -25,8 +25,9 @@ bool D3DFramework::Initialize()
 	ThrowIfFailed(_cmdList->Reset(_directCmdListAlloc.Get(), nullptr));
 	_cbvSrvDescriptorSize = _d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-	LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/Model.obj");
-	LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/Model_1.obj");
+	//LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/Model.obj");
+	//LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/Model_1.obj");
+	LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/DispTest.obj");
 	CreateLight();
 
 	_gBuffer = std::make_unique<GBuffer>(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT);
